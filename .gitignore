@@ -1,0 +1,4 @@
+.gitx/*
+!.gitx/commits/
+node_modules/
+.env
