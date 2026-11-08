@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /*
- * automatu bind <repo> <canvas> [--replace]   bind a repository to the canvas that plans it
+ * automatu bind <repo> <canvas> [--totem=<plan totem>] [--replace]
+ *                                              bind a repository to the canvas that plans it,
+ *                                              naming the totem that is the plan
  * automatu sources <repo>                      what AutomatU reads for it: regions, commits,
  *                                              thoughts, and the sections of its canvas
  * automatu align <repo>                        place its regions under its canvas's sections
@@ -17,13 +19,15 @@ import { serve } from './serve.js';
 const [cmd, ...args] = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith('--')));
 const pos = args.filter((a) => !a.startsWith('--'));
-const USAGE = 'usage: automatu bind <repo> <canvas> [--replace] | automatu sources <repo> | automatu align <repo> | automatu serve [--port=7790]';
+const USAGE = 'usage: automatu bind <repo> <canvas> [--totem=<plan totem>] [--replace] | automatu sources <repo> | automatu align <repo> | automatu serve [--port=7790]';
 
 async function main() {
   await migrate();
   if (cmd === 'bind') {
-    const r = await bind(pos[0], pos[1], { replace: flags.has('--replace') });
-    console.log(r.changed ? `bound ${r.repo} to ${r.canvas}${r.was ? ' (was ' + r.was + ')' : ''}` : `${r.repo} is already bound to ${r.canvas}`);
+    const totem = (args.find((a) => a.startsWith('--totem=')) || '').slice(8) || null;
+    const r = await bind(pos[0], pos[1], { totem, replace: flags.has('--replace') });
+    const where = r.canvas + (r.totem ? ' > ' + r.totem : '');
+    console.log(r.changed ? `bound ${r.repo} to ${where}${r.was ? ' (was ' + r.was + ')' : ''}` : `${r.repo} is already bound to ${where}`);
   } else if (cmd === 'sources') {
     const b = await bindingOf(pos[0]);
     const repo = await readRepo(repoKey(pos[0]));

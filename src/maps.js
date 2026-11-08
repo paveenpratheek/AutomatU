@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './store.js';
-import { bindingOf, repoKey } from './binding.js';
+import { bindingOf, repoKey, planSections } from './binding.js';
 import { readRepo } from './sources/gitx.js';
 import { readCanvas } from './sources/canvas.js';
 import { regionVectors, sectionVectors } from './profile.js';
@@ -32,7 +32,10 @@ export async function makeMap(dir, numbers = calibrated()) {
   const key = repoKey(dir);
   const b = await bindingOf(key);
   if (!b) throw new Error(key + ' is not bound to a canvas: automatu bind <repo> <canvas>');
-  const [repo, canvas] = await Promise.all([readRepo(key), readCanvas(b.canvas)]);
+  const [repo, whole] = await Promise.all([readRepo(key), readCanvas(b.canvas)]);
+  /* Only the plan totem's boxes, when the binding names one (t-ea1ec85327). */
+  const canvas = { name: whole.name, sections: planSections(b, whole.sections) };
+  if (!canvas.sections.length) throw new Error('the plan totem ' + b.totem + ' has no boxes on the canvas ' + b.canvas);
   const [rv, sv] = [await regionVectors(repo, key), await sectionVectors(canvas)];
   const places = placeRegions(rv.vectors, sv.vectors, numbers);
   const placed = places.filter((p) => p.section).length;

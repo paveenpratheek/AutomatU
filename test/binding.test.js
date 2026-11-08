@@ -65,6 +65,28 @@ test('a canvas that does not exist is not bound', async () => {
   }
 });
 
+test('naming the plan totem: allowed on a binding without one, checked against the canvas, and it limits the sections', async () => {
+  const { planSections } = await import('../src/binding.js');
+  const { sections } = await import('../src/sources/canvas.js');
+  const script = '<Canvas name="P"><Totem name="Plan"><Area name="1. Read"/><Area name="2. Show"/></Totem><Totem name="Rules"><Area name="Code is truth"/></Totem></Canvas>';
+  const has = async () => script;
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'automatu-bind-'));
+  execFileSync('git', ['init', '-q'], { cwd: other });
+  try {
+    await bind(other, 'P', { check: has });
+    await assert.rejects(bind(other, 'P', { totem: 'Nope', check: has }), /no totem named Nope/);
+    const r = await bind(other, 'P', { totem: 'Plan', check: has });
+    assert.equal(r.changed, true);
+    const b = await bindingOf(other);
+    assert.equal(b.totem, 'Plan');
+    assert.deepEqual(planSections(b, sections(script)).map((s) => s.name), ['1. Read', '2. Show']);
+    assert.equal(planSections({ totem: null }, sections(script)).length, 3, 'no totem named: every box');
+    await assert.rejects(bind(other, 'P', { totem: 'Rules', check: has }), /pass replace/);
+  } finally {
+    fs.rmSync(other, { recursive: true, force: true });
+  }
+});
+
 test('a folder that is not a repository is refused', () => {
   assert.throws(() => repoKey(os.tmpdir()), /not a git repository/);
 });
