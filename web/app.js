@@ -12,7 +12,7 @@
 import { model, pathTo, boxesUnder, under, canvasLayout, rootLayout, spiral, fit, hexPts, ghostRing } from './hexmain.js';
 import { keywords, hitsOf, shownAndOn, dominant, traffic, regionHits, zeros } from './search.js';
 import { buildCodeMap, hexD, regionAt } from './codelayout.js';
-import { boardHtml, routeWires, wiresHtml, worldRect } from './board.js';
+import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -187,6 +187,7 @@ function viewKind(reg, node) {
 
 function contentHtml(c) {
   return `<div class="item"><div class="hd"><span class="lb">${esc(c.label)}</span><span class="nm">${esc(c.name)}</span>${c.edited ? '<span class="ed">edited by you</span>' : ''}</div>` +
+    (c.src ? picHtml(c, 'pimg') : '') +
     (c.text ? `<div class="tx">${esc(c.text)}</div>` : '') + `</div>`;
 }
 
@@ -555,7 +556,7 @@ function boardZoomAt(px_, py_, z2) {
 let bdrag = null;
 document.addEventListener('pointerdown', (e) => {
   const vp = e.target.closest && e.target.closest('#bvp');
-  if (!vp || e.button !== 0 || e.target.closest('button') || !S.bview) return;
+  if (!vp || e.button !== 0 || e.target.closest('button, [data-pic]') || !S.bview) return;
   bdrag = { x: e.clientX, y: e.clientY, tx: S.bview.tx, ty: S.bview.ty };
   vp.setPointerCapture(e.pointerId);
 });
@@ -577,7 +578,20 @@ document.addEventListener('wheel', (e) => {
 
 function go(path, sel, x, y, dir) { Object.assign(S, { path, sel, ox: x, oy: y, dir, tick: S.tick + 1 }); render(); }
 
+/* A picture opened large over the page, as the prototype did; a click or Esc closes it. */
+function openPic(src, name) {
+  closePic();
+  const lb = document.createElement('div');
+  lb.className = 'lightbox'; lb.id = 'lightbox';
+  lb.innerHTML = `<figure><img src="${esc(src)}" alt="${esc(name)}"><figcaption>${esc(name)}</figcaption></figure>`;
+  document.body.appendChild(lb);
+}
+function closePic() { const lb = $('lightbox'); if (lb) { lb.remove(); return true; } return false; }
+
 document.addEventListener('click', (e) => {
+  if (e.target.closest('#lightbox')) return closePic();
+  const pic = e.target.closest('[data-pic]');
+  if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
   const t = e.target.closest('button, polygon');
   if (!t) return;
   const d = t.dataset;
@@ -630,6 +644,7 @@ document.addEventListener('pointermove', (e) => {
 
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (closePic()) return;
   if (S.tab === 'main' && S.sel) { S.sel = null; render(); }
   else if (S.tab === 'main' && S.path.length > 1) go(S.path.slice(0, -1), null, 0, 0, -1);
   else if (S.tab === 'code' && (S.cg != null || S.cc != null)) { S.cg = null; S.cc = null; render(); }

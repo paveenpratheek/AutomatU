@@ -23,6 +23,17 @@ test('a box holding a keyword is ringed and says so', () => {
   assert.ok(html.includes('files · 1'));
 });
 
+test('an image on the canvas is shown at its own proportions and opens large', () => {
+  const mi = model([{ name: 'Plan', agent: true, repos: [], totems: [
+    { name: 'Build', owner: 'agent', text: '', items: [], links: [], subs: [],
+      boxes: [{ name: 'Shapes', items: [{ type: 'file', label: 'Image', name: 'flow', text: '', image: true, id: 'f1', src: '/api/canvas-image?canvas=Plan&id=f1', ratio: '480 / 720' }], boxes: [] }] },
+  ] }]);
+  const { html } = boardHtml(mi, mi.reg.root.children[0], pal, () => false, '');
+  assert.ok(html.includes('<img class="bimg" src="/api/canvas-image?canvas=Plan&amp;id=f1"'));
+  assert.ok(html.includes('aspect-ratio:480 / 720'));
+  assert.ok(html.includes('data-pic='));
+});
+
 test('a wire leaves from a dot and arrives with an arrow, its corners rounded', () => {
   const w = polyWire([[0, 0], [100, 0], [100, 80]], '#B0447A');
   assert.ok(w.d.startsWith('M ') && w.d.includes(' Q '));

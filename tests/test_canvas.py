@@ -63,3 +63,45 @@ def test_the_tree_keeps_totems_sub_totems_boxes_and_links():
     assert t["boxes"][0]["items"][0]["name"] == "Files" and t["boxes"][0]["boxes"][0]["name"] == "Inner"
     assert t["subs"][0]["name"] == "Later" and t["subs"][0]["boxes"][0]["name"] == "Agents"
     assert t["links"] == [["1. Read", "2. Show"]]
+
+
+def _workspace(tmp_path, monkeypatch, files, sources=None):
+    import json
+    from automatu.sources import canvas
+    data = tmp_path / "notex"
+    data.mkdir()
+    (data / "config.json").write_text(json.dumps({"workspace": str(tmp_path / "ws")}))
+    rt = tmp_path / "runtime.json"
+    rt.write_text(json.dumps({"dataDir": str(data)}))
+    monkeypatch.setattr(canvas, "NOTEX_RUNTIME", str(rt))
+    fab = tmp_path / "ws" / "Plan"
+    (fab / "sources").mkdir(parents=True)
+    (fab / "fabric.json").write_text(json.dumps({"files": files}))
+    for name, body in (sources or {}).items():
+        (fab / "sources" / name).write_bytes(body)
+
+
+def test_an_image_is_read_from_sources_or_from_its_data_url(tmp_path, monkeypatch):
+    import base64
+    from automatu.sources.canvas import canvas_files, canvas_image
+    png = b"\x89PNG\r\n\x1a\nbody"
+    _workspace(tmp_path, monkeypatch, [
+        {"id": "a", "name": "flow.png", "isImage": True, "imageWidth": 480, "imageHeight": 720},
+        {"id": "b", "name": "only-inside.png", "isImage": True, "imageDataUrl": "data:image/png;base64," + base64.b64encode(png).decode()},
+        {"id": "c", "name": "notes.txt", "isImage": False},
+        {"id": "d", "name": "../escape.png", "isImage": True},
+    ], {"flow.png": png})
+    assert canvas_files("Plan")["a"]["w"] == 480
+    assert canvas_image("Plan", "a") == (png, "image/png")
+    assert canvas_image("Plan", "b") == (png, "image/png")
+    assert canvas_image("Plan", "c") is None, "not an image"
+    assert canvas_image("Plan", "d") is None, "a name with a path never leaves sources/"
+    assert canvas_image("Plan", "nope") is None
+
+
+def test_a_canvas_name_cannot_walk_out_of_the_workspace(tmp_path, monkeypatch):
+    import pytest
+    from automatu.sources.canvas import canvas_files
+    _workspace(tmp_path, monkeypatch, [])
+    with pytest.raises(ValueError):
+        canvas_files("../Plan")

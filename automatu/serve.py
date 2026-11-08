@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
@@ -37,6 +37,23 @@ def canvases() -> dict:
     """The bound canvases, for the Main map (t-87c7947c95)."""
     from .views import canvases_view
     return canvases_view()
+
+
+@app.get("/api/canvas-image")
+def canvas_image_of(canvas: str, id: str) -> Response:
+    """One image on a bound canvas, read where File Fabric keeps it (t-94fa849705).
+    Only bound canvases serve images (t-8a3b5b9f93)."""
+    from .binding import all_bindings
+    from .sources.canvas import canvas_image
+    if canvas not in {b["canvas"] for b in all_bindings()}:
+        raise HTTPException(404, "not a canvas bound to a repository")
+    try:
+        got = canvas_image(canvas, id)
+    except (OSError, ValueError, RuntimeError) as e:
+        raise HTTPException(404, str(e))
+    if not got:
+        raise HTTPException(404, "no image with that id on this canvas")
+    return Response(content=got[0], media_type=got[1])
 
 
 @app.get("/api/code")

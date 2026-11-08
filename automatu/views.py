@@ -13,11 +13,12 @@ commit does not run git blame again (t-8958a38540).
 from __future__ import annotations
 
 import threading
+from urllib.parse import quote
 
 from .binding import all_bindings, plan_sections
 from .maps import head_of, latest_map
 from .profile import live_thoughts
-from .sources.canvas import read_canvas_raw, sections, tree
+from .sources.canvas import canvas_files, read_canvas_raw, sections, tree
 from .sources.gitx import Repo, read_repo
 
 _repos: dict[str, tuple[str, Repo]] = {}
@@ -47,8 +48,32 @@ def canvases_view() -> dict:
         except RuntimeError as e:
             out.append({"name": name, "agent": False, "totems": [], "repos": repos, "error": str(e)})
             continue
-        out.append({"name": name, "agent": raw["agent"], "totems": tree(raw["script"]), "repos": repos})
+        totems = tree(raw["script"])
+        _with_pictures(name, totems)
+        out.append({"name": name, "agent": raw["agent"], "totems": totems, "repos": repos})
     return {"canvases": out}
+
+
+def _with_pictures(canvas: str, totems: list[dict]) -> None:
+    """Each image on the canvas gets the address the page shows it from and its
+    proportions, so the board is laid out before any picture arrives."""
+    try:
+        files = canvas_files(canvas)
+    except (OSError, ValueError, RuntimeError):
+        return
+
+    def walk(node: dict) -> None:
+        for it in node.get("items", []):
+            f = files.get(it.get("id", "")) if it.get("image") else None
+            if f and f["image"]:
+                it["src"] = "/api/canvas-image?canvas=" + quote(canvas, safe="") + "&id=" + quote(it["id"], safe="")
+                if f["w"] and f["h"]:
+                    it["ratio"] = f"{f['w']:g} / {f['h']:g}"
+        for k in node.get("boxes", []) + node.get("subs", []):
+            walk(k)
+
+    for t in totems:
+        walk(t)
 
 
 def code_view(repo_key: str) -> dict | None:

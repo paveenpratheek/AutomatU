@@ -7,6 +7,14 @@
  */
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/* An image on the canvas, at its own proportions so the board's layout (and
+   the wires measured from it) is right before the picture arrives; a click
+   opens it large. */
+export function picHtml(c, cls) {
+  return `<img class="${cls}" src="${esc(c.src)}" alt="${esc(c.name)}" title="Click to enlarge" draggable="false" loading="lazy" ` +
+    `data-pic="${esc(c.src)}" data-picname="${esc(c.name)}"${c.ratio ? ` style="aspect-ratio:${esc(c.ratio)}"` : ''}>`;
+}
+
 /* The board's HTML for one canvas. hot(item) says whether an item holds a
    keyword switched on, so its box can be ringed. */
 export function boardHtml(m, cid, palOf, hot, term) {
@@ -16,6 +24,7 @@ export function boardHtml(m, cid, palOf, hot, term) {
     const bg = note ? '#FFF8E1' : (file ? '#F1EFE8' : 'transparent'), border = note ? '1px solid #EEDFB0' : (file ? '1px solid #E2DED3' : '0'), pad = note || file ? '8px 10px' : '0';
     return `<div class="bitem" style="padding:${pad};background:${bg};border:${border}">` +
       (note || file ? `<div class="bhead"><span class="blab">${esc(c.label)}</span><span class="bname">${esc(c.name)}</span>${c.edited ? '<span class="bed">edited by you</span>' : ''}</div>` : '') +
+      (c.src ? picHtml(c, 'bimg') : '') +
       (c.text ? `<div class="btext">${esc(c.text)}</div>` : '') + `</div>`;
   };
   const boxV = (id, depth) => {

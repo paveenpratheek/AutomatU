@@ -174,8 +174,9 @@ def tree(script: str) -> list[dict]:
         edited = n.attrs.get("edited") == "by the user" or n.attrs.get("owner") == "user"
         if n.tag == "File":
             path = n.attrs.get("path") or n.attrs.get("name") or ""
-            return {"type": "file", "label": "Image" if n.attrs.get("kind") == "image" else "File",
-                    "name": re.sub(r"\.png$", "", path, flags=re.I), "text": "", "edited": edited}
+            image = n.attrs.get("kind") == "image"
+            return {"type": "file", "label": "Image" if image else "File", "id": n.attrs.get("id", ""),
+                    "image": image, "name": re.sub(r"\.png$", "", path, flags=re.I), "text": "", "edited": edited}
         return {"type": n.tag.lower(), "label": n.tag, "name": n.attrs.get("name", "") if n.tag == "Note" else "",
                 "text": _clean(n.text), "edited": edited}
 
@@ -207,6 +208,77 @@ def tree(script: str) -> list[dict]:
         fill(t, totem, totem["links"])
         out.append(totem)
     return out
+
+
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+_DATA_URL = re.compile(r"^data:(image/[a-z+]+);base64,(.*)$", re.S)
+_files_seen: dict[str, tuple[int, dict]] = {}
+
+
+def _canvas_dir(name: str) -> str:
+    """Where File Fabric keeps a canvas: NoteX's workspace, read at each call
+    and never stored (t-8c6a4dcf47)."""
+    try:
+        with open(NOTEX_RUNTIME, encoding="utf-8") as f:
+            data_dir = json.load(f)["dataDir"]
+        with open(os.path.join(data_dir, "config.json"), encoding="utf-8") as f:
+            workspace = json.load(f).get("workspace")
+    except (OSError, ValueError, KeyError):
+        raise RuntimeError("NoteX's engine is not running: open NoteX in ter-manager and start it.")
+    if not workspace:
+        raise RuntimeError("NoteX has no File Fabric workspace yet.")
+    if not name or os.path.basename(name) != name or name in (".", ".."):
+        raise ValueError("not a canvas name: " + repr(name))
+    return os.path.join(workspace, name)
+
+
+def canvas_files(name: str) -> dict[str, dict]:
+    """The files on a canvas by id - name, size, and whether the image has a
+    file in sources/ or only a data URL inside fabric.json. Only these facts
+    are kept, by fabric.json's modified time; the pictures are read when asked."""
+    p = os.path.join(_canvas_dir(name), "fabric.json")
+    mt = os.stat(p).st_mtime_ns
+    seen = _files_seen.get(p)
+    if seen and seen[0] == mt:
+        return seen[1]
+    with open(p, encoding="utf-8") as f:
+        state = json.load(f)
+    out = {}
+    for x in state.get("files") or []:
+        def num(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+        out[str(x.get("id"))] = {"name": x.get("name") or "", "image": bool(x.get("isImage")),
+                                 "w": num(x.get("imageWidth")), "h": num(x.get("imageHeight"))}
+    _files_seen[p] = (mt, out)
+    return out
+
+
+def canvas_image(name: str, file_id: str) -> tuple[bytes, str] | None:
+    """One image on a canvas, read where File Fabric keeps it: its copy in the
+    fabric's sources/, else the data URL in fabric.json. Never copied
+    (t-94fa849705); found by its id, and a name with a folder in it is never
+    read from sources/ (t-8a3b5b9f93)."""
+    f = canvas_files(name).get(file_id)
+    if not f or not f["image"]:
+        return None
+    d = _canvas_dir(name)
+    fname, ext = f["name"], os.path.splitext(f["name"])[1].lower()
+    if fname and os.path.basename(fname) == fname and ext in IMAGE_TYPES:
+        src = os.path.join(d, "sources", fname)
+        if os.path.isfile(src):
+            with open(src, "rb") as fh:
+                return fh.read(), IMAGE_TYPES[ext]
+    with open(os.path.join(d, "fabric.json"), encoding="utf-8") as fh:
+        state = json.load(fh)
+    x = next((x for x in state.get("files") or [] if str(x.get("id")) == file_id), None)
+    m = _DATA_URL.match((x or {}).get("imageDataUrl") or "")
+    if not m or m.group(1) not in IMAGE_TYPES.values():
+        return None
+    import base64
+    return base64.b64decode(m.group(2)), m.group(1)
 
 
 def _all(node: Node, tag: str) -> list[Node]:
