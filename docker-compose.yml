@@ -1,0 +1,18 @@
+# AutomatU's metadata store: Postgres with pgvector, on this machine only.
+# It holds metadata and snapshots, never the code, commits or thoughts.
+# Loopback only, so the local default password is no open door (t-27499d9788).
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: automatu-pg
+    environment:
+      POSTGRES_USER: automatu
+      POSTGRES_PASSWORD: ${AUTOMATU_PG_PASSWORD:-automatu}
+      POSTGRES_DB: automatu
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - automatu-pg:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  automatu-pg: {}
