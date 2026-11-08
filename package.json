@@ -1,0 +1,10 @@
+{
+  "name": "automatu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutomatU - brings a project's sources together and aligns its code under the plan that explains it",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
