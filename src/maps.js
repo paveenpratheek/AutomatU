@@ -41,8 +41,9 @@ export async function makeMap(dir, numbers = calibrated()) {
   try {
     await c.query('BEGIN');
     const run = (await c.query(
-      'INSERT INTO map_run (repo, canvas, head, model, min_score, min_margin, overlap, regions, placed) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, made_at',
-      [key, b.canvas, repo.head, MODEL, numbers.minScore, numbers.minMargin, numbers.overlap || 0, places.length, placed])).rows[0];
+      'INSERT INTO map_run (repo, canvas, head, model, min_score, min_margin, overlap, regions, placed, sections) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id, made_at',
+      [key, b.canvas, repo.head, MODEL, numbers.minScore, numbers.minMargin, numbers.overlap || 0, places.length, placed,
+        canvas.sections.map((s) => s.address)])).rows[0];
     for (const p of places) {
       await c.query('INSERT INTO placement (run_id, region, section, sections, near, best, score, margin) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
         [run.id, p.region, p.section, p.sections, p.near, p.best, p.score, p.margin]);
@@ -65,4 +66,10 @@ export async function latestMap(dir) {
   if (!run) return null;
   const places = (await db().query('SELECT region, section, sections, near, best, score, margin FROM placement WHERE run_id = $1 ORDER BY region', [run.id])).rows;
   return { run, places };
+}
+
+/* Every repository with a map, with its newest run - for the map view. */
+export async function mappedRepos() {
+  return (await db().query(
+    'SELECT DISTINCT ON (repo) repo, canvas, id, head, made_at, regions, placed FROM map_run ORDER BY repo, made_at DESC, id DESC')).rows;
 }

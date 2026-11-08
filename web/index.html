@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutomatU Map</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>AutomatU</h1>
+    <label class="pick">Repository
+      <select id="repo" aria-label="Repository"></select>
+    </label>
+    <p id="meta" class="meta"></p>
+  </header>
+  <main class="body">
+    <aside id="filter" class="panel" aria-label="Canvas filter"></aside>
+    <section class="mapwrap" aria-label="Map">
+      <svg id="map" role="img" aria-label="Code regions placed under the sections of the canvas"></svg>
+      <p id="empty" class="empty" hidden></p>
+    </section>
+    <aside id="waiting" class="panel" aria-label="Not yet placed"></aside>
+  </main>
+  <div id="tip" class="tip" role="tooltip" hidden></div>
+  <script type="module" src="map.js"></script>
+  <script type="module" src="panels.js"></script>
+</body>
+</html>

@@ -5,17 +5,19 @@
  *                                              thoughts, and the sections of its canvas
  * automatu align <repo>                        place its regions under its canvas's sections
  *                                              and keep the map as a snapshot
+ * automatu serve [--port=7790]                 the map view, on 127.0.0.1
  */
 import { migrate, close } from './store.js';
 import { bind, bindingOf, repoKey } from './binding.js';
 import { readRepo } from './sources/gitx.js';
 import { readCanvas } from './sources/canvas.js';
 import { makeMap } from './maps.js';
+import { serve } from './serve.js';
 
 const [cmd, ...args] = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith('--')));
 const pos = args.filter((a) => !a.startsWith('--'));
-const USAGE = 'usage: automatu bind <repo> <canvas> [--replace] | automatu sources <repo> | automatu align <repo>';
+const USAGE = 'usage: automatu bind <repo> <canvas> [--replace] | automatu sources <repo> | automatu align <repo> | automatu serve [--port=7790]';
 
 async function main() {
   await migrate();
@@ -39,6 +41,11 @@ async function main() {
     const shared = m.places.filter((p) => p.sections.length > 1).length;
     for (const s of m.sections) console.log(`  ${String(by[s] || 0).padStart(4)}  ${s}`);
     if (shared) console.log(`  ${shared} of the placed regions sit in more than one section`);
+  } else if (cmd === 'serve') {
+    const port = Number((args.find((a) => a.startsWith('--port=')) || '').slice(7)) || 7790;
+    await serve({ port });
+    console.log(`map view on http://127.0.0.1:${port}  (Ctrl+C to stop)`);
+    await new Promise(() => {}); /* serve until stopped */
   } else {
     console.log(USAGE);
     process.exitCode = 2;
