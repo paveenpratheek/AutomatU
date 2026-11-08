@@ -586,6 +586,42 @@ async function start() {
   } catch (e) { S.failed = 'Could not load the canvases: ' + e.message; }
   render();
   if (S.repo) loadCode();
+  setInterval(() => follow().catch(() => {}), 4000);
+}
+
+/* The live map (t-5b98c27370): the server makes a new map on every commit or
+   plan change; the page notices, reads it, and redraws in place - the zoom,
+   the selection and the search stay - with the code placed since the map
+   before glowing for a moment. A new map can also mean the plan changed, so
+   the canvases are read again too. */
+async function follow() {
+  const { repos } = await getJson('/api/repos');
+  const before = new Map(S.repos.map((r) => [r.repo, r.id]));
+  S.repos = repos;
+  const changed = repos.filter((r) => before.get(r.repo) !== r.id);
+  if (!changed.length) return;
+  const cv = await getJson('/api/canvases');
+  const m = model(cv.canvases);
+  /* Keep the Main map where it was, when what it points at is still there. */
+  const keep = S.path.map((id) => S.m && S.m.reg[id] && pathTo(S.m.reg, id).map((x) => S.m.reg[x].name).join('>'));
+  S.m = m; S.layouts = {}; S.memo = {};
+  const byPath = {};
+  for (const id of Object.keys(m.reg)) byPath[pathTo(m.reg, id).map((x) => m.reg[x].name).join('>')] = id;
+  S.path = keep.map((k) => byPath[k]).filter(Boolean);
+  if (!S.path.length) S.path = ['root'];
+  if (S.sel && S.m.reg[S.sel] === undefined) S.sel = null;
+  for (const r of changed) {
+    const old = S.code[r.repo];
+    if (!old && r.repo !== S.repo) continue;
+    const next = await getJson('/api/code?repo=' + encodeURIComponent(r.repo));
+    if (r.repo === S.repo && old) {
+      const was = new Map(old.places.map((p) => [p.region, p.sections.join('|')]));
+      S.fresh = new Set(next.places.filter((p) => p.sections.length && was.get(p.region) !== p.sections.join('|')).map((p) => p.region));
+      setTimeout(() => { S.fresh = new Set(); if (S.tab === 'code') render(); }, 6500);
+    }
+    S.code[r.repo] = next;
+  }
+  render();
 }
 
 start();
