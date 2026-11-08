@@ -42,23 +42,31 @@ instead of copied.
 
 The placement numbers are calibrated on a canvas whose links are already
 known - the Harness canvas, whose boxes cite the commits and decisions of
-three repositories - with those citations hidden from AutomatU.
+RAGX and NoteX - with those citations hidden from AutomatU. Each repository
+is checked against its own plan totem, as a binding places code. (CanvasX,
+also on that canvas, is left out: its canvas does not hold its whole plan,
+and its history was recorded after it was built without git.)
 
-| | Known regions | Nearest section right | Placed right (precision) | Known regions placed right (coverage) |
-|---|---|---|---|---|
-| Calibration, one section per region | 1,237 | 69.0% | 93.9% | 38.7% |
-| Calibration, shared (Venn) placement | 1,237 | 69.0% | **94.3%** | **44.1%** |
+| RAGX + NoteX, 1,131 known regions | Nearest section right | Placed right (precision) | Known regions placed right (coverage) |
+|---|---|---|---|
+| One section per region | 73.8% | 98.5% | 41.8% |
+| Shared (Venn) placement - kept | 73.8% | **91.9%** | **49.9%** |
 
 AutomatU is also built under its own plan, and a key kept outside the
 repository records which section each commit was built for. Its runs on its
-own code so far, against a pass mark fixed beforehand (precision 90%,
-coverage 45%):
+own code so far, each against a pass mark fixed beforehand:
 
 | Run | Precision | Coverage | Result |
 |---|---|---|---|
 | Whole canvas as candidates | 73.2% | 61.7% | fail - a rules totem drew code |
 | Plan totem only (after the change) | 78.6% | 66.4% | not a fair test |
-| Port to Python, plan totem only | 100% | 27.9% | fail - port commits describe the move, not the code |
+| Port to Python | 100% | 27.9% | fail - port commits describe the move, not the code |
+| Port to Python, RAGX + NoteX numbers | 100% | 28.6% | fail on coverage; nearest section right for 86% |
+
+What it shows: when AutomatU places code it is almost always right, and it
+leaves code waiting rather than guess. Coverage depends on what was said
+about the code - a commit that describes what the code does places well; a
+bulk import or a "moved to Python" commit leaves too little to go on.
 
 ## Stack
 

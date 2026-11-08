@@ -1,0 +1,16 @@
+docs(readme): what AutomatU does, how it works, what was measured and how to run it
+
+The project is for an AI Engineer portfolio and a pitch, so the first
+thing a reader opens has to say what it does and show the evidence. The
+README covers the problem, the read-judge-place-snapshot flow, the
+calibration numbers and every self-test run so far - failures included -
+the stack and module layout, and setup and commands.
+
+It is about the whole project rather than one plan section, so it has
+no answer-key entry and stays out of the self-test's score.
+
+GitX-Builds-On: e00f436
+GitX-Thoughts: t-74168c67b9, t-24ec778615
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01EWYgAw742Uk3iBuwVef5ru
+
