@@ -1,0 +1,27 @@
+{
+  "made": "2026-11-08",
+  "model": "bge-m3",
+  "canvas": "Harness",
+  "repos": [
+    "E:/Coding CLI/Project Harness",
+    "E:/Coding CLI/Project NoteX",
+    "E:/Coding CLI/Project CanvasX"
+  ],
+  "wrongCost": 2,
+  "minScore": 0,
+  "minMargin": 0.0325,
+  "result": {
+    "known": 1237,
+    "placed": 510,
+    "correct": 479,
+    "wrong": 31,
+    "precision": 0.9392,
+    "coverage": 0.3872,
+    "top1": 0.6896
+  },
+  "selfTest": {
+    "minPrecision": 0.9,
+    "minCoverage": 0.39,
+    "truth": "the section the region's main commit was built for, from the answer key kept outside the repository"
+  }
+}
