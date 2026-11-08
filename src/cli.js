@@ -3,15 +3,19 @@
  * automatu bind <repo> <canvas> [--replace]   bind a repository to the canvas that plans it
  * automatu sources <repo>                      what AutomatU reads for it: regions, commits,
  *                                              thoughts, and the sections of its canvas
+ * automatu align <repo>                        place its regions under its canvas's sections
+ *                                              and keep the map as a snapshot
  */
 import { migrate, close } from './store.js';
 import { bind, bindingOf, repoKey } from './binding.js';
 import { readRepo } from './sources/gitx.js';
 import { readCanvas } from './sources/canvas.js';
+import { makeMap } from './maps.js';
 
 const [cmd, ...args] = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith('--')));
 const pos = args.filter((a) => !a.startsWith('--'));
+const USAGE = 'usage: automatu bind <repo> <canvas> [--replace] | automatu sources <repo> | automatu align <repo>';
 
 async function main() {
   await migrate();
@@ -27,8 +31,14 @@ async function main() {
     const canvas = await readCanvas(b.canvas);
     console.log(`canvas ${b.canvas}: ${canvas.sections.length} sections`);
     for (const s of canvas.sections) console.log('  ' + s.address);
+  } else if (cmd === 'align') {
+    const m = await makeMap(pos[0]);
+    console.log(`map ${m.run}: ${m.repo} at ${m.head} on ${m.canvas} - ${m.placed} of ${m.regions} regions placed, ${m.regions - m.placed} not yet placed`);
+    const by = {};
+    for (const p of m.places) if (p.section) by[p.section] = (by[p.section] || 0) + 1;
+    for (const s of m.sections) console.log(`  ${String(by[s] || 0).padStart(4)}  ${s}`);
   } else {
-    console.log('usage: automatu bind <repo> <canvas> [--replace] | automatu sources <repo>');
+    console.log(USAGE);
     process.exitCode = 2;
   }
 }
