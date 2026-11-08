@@ -5,17 +5,46 @@ the same tomorrow even if the code or the canvas has moved (t-42b6c9355c).
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from .align import Numbers, place_regions
 from .binding import binding_of, plan_sections, repo_key
-from .embed import MODEL
+from .embed import MODEL, text_hash
 from .profile import region_vectors, section_vectors
-from .sources.canvas import Canvas, read_canvas
+from .sources.canvas import Canvas, Section, read_canvas
 from .sources.gitx import read_repo
 from .store import db
 
 CALIBRATION = Path(__file__).resolve().parent.parent / "calibration.json"
+
+
+def plan_hash(sections: list[Section]) -> str:
+    """A fingerprint of the plan's boxes and words, so a box added or reworded
+    is noticed (t-5b98c27370)."""
+    return text_hash("\n\x1f".join(s.address + "\n" + s.words for s in sections))
+
+
+def head_of(repo: str) -> str:
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True).stdout.strip()[:12]
+
+
+def plan_of(binding: dict) -> list[Section]:
+    return plan_sections(binding, read_canvas(binding["canvas"]).sections)
+
+
+def needs_map(binding: dict) -> str | None:
+    """Why a bound repository needs a new map - a new commit, or its plan
+    changed - or None when its newest map is current."""
+    row = db().execute("SELECT head, plan_hash FROM map_run WHERE repo = %s ORDER BY made_at DESC, id DESC LIMIT 1",
+                       (binding["repo"],)).fetchone()
+    if not row:
+        return "no map yet"
+    if head_of(binding["repo"]) != row[0]:
+        return "new commit"
+    if plan_hash(plan_of(binding)) != row[1]:
+        return "plan changed"
+    return None
 
 
 def calibrated() -> Numbers:
@@ -49,9 +78,10 @@ def make_map(dir: str, numbers: Numbers | None = None) -> dict:
     conn = db()
     with conn.transaction():
         run_id, made_at = conn.execute(
-            "INSERT INTO map_run (repo, canvas, head, model, min_score, min_margin, overlap, regions, placed, sections) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id, made_at",
-            (key, b["canvas"], repo.head, MODEL, numbers.min_score, numbers.min_margin, numbers.overlap, len(places), placed, addresses)).fetchone()
+            "INSERT INTO map_run (repo, canvas, head, model, min_score, min_margin, overlap, regions, placed, sections, plan_hash) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id, made_at",
+            (key, b["canvas"], repo.head, MODEL, numbers.min_score, numbers.min_margin, numbers.overlap, len(places), placed, addresses,
+             plan_hash(canvas.sections))).fetchone()
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO placement (run_id, region, section, sections, near, best, score, margin) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",

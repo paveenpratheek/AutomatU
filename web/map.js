@@ -51,7 +51,9 @@ function hexPoints(cx, cy, size) {
   return pts.join(' ');
 }
 
-const state = { map: null, colour: {}, hidden: new Set() };
+/* fresh: regions placed since the map shown before, so new code is seen landing
+   under its box (t-5b98c27370). */
+const state = { map: null, colour: {}, hidden: new Set(), fresh: new Set() };
 
 function tip(html, e) {
   const t = $('tip');
@@ -96,7 +98,7 @@ function drawMap() {
   for (const c of cells) {
     const { x, y } = toPixel(c, HEX);
     minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-    const poly = el('polygon', { points: hexPoints(x, y, HEX - 0.5), fill: fillFor(c.sections), class: 'hex' }, g);
+    const poly = el('polygon', { points: hexPoints(x, y, HEX - 0.5), fill: fillFor(c.sections), class: 'hex' + (state.fresh.has(c.region) ? ' fresh' : '') }, g);
     poly.dataset.sections = JSON.stringify(c.sections);
     const p = places.find((x) => x.region === c.region);
     poly.addEventListener('mousemove', (e) => tip(
@@ -142,21 +144,30 @@ function applyHidden() {
   for (const t of document.querySelectorAll('#map .label')) t.classList.toggle('faded', state.hidden.has(t.dataset.section));
 }
 
-async function loadMap(repo) {
+/* follow: a newer map of the repository already shown - keep the filter, and
+   mark what was placed since the map before. */
+async function loadMap(repo, { follow = false } = {}) {
   const r = await fetch('/api/map?repo=' + encodeURIComponent(repo));
   const j = await r.json();
   if (!r.ok) { $('meta').textContent = j.error || j.detail; return; }
+  const before = follow && state.map ? new Map(state.map.places.map((p) => [p.region, p.sections.join('|')])) : null;
+  state.fresh = new Set(before ? j.places.filter((p) => p.sections.length && before.get(p.region) !== p.sections.join('|')).map((p) => p.region) : []);
   state.map = j;
-  state.hidden = new Set();
+  if (!follow) state.hidden = new Set();
   const sections = j.run.sections.length ? j.run.sections : [...new Set(j.places.flatMap((p) => p.sections))];
   nameSections(sections);
   const withCode = new Set(j.places.flatMap((p) => [...p.sections, ...(p.near || [])]));
   state.colour = colours(sections.filter((s) => withCode.has(s)));
   const placed = j.places.filter((p) => p.sections.length).length;
   const shared = j.places.filter((p) => p.sections.length > 1).length;
-  $('meta').innerHTML = `canvas <b>${esc(j.run.canvas)}</b> · at <b>${esc(j.run.head)}</b> · ` +
-    `<b>${placed}</b> of ${j.places.length} regions placed${shared ? `, ${shared} in more than one section` : ''} · ` +
-    `map made ${new Date(j.run.made_at).toLocaleString()}`;
+  const reached = new Set(j.places.flatMap((p) => p.sections));
+  const noCode = sections.filter((s) => !reached.has(s)).length;
+  $('meta').innerHTML =
+    `<span class="stat"><b>${placed}</b> placed${shared ? ` <span class="sub">(${shared} shared)</span>` : ''}</span>` +
+    `<span class="stat"><b>${j.places.length - placed}</b> waiting</span>` +
+    `<span class="stat"><b>${noCode}</b> ${noCode === 1 ? 'box' : 'boxes'} with no code yet</span>` +
+    `<span class="where">${esc(j.run.canvas)} · at ${esc(j.run.head)} · map ${j.run.id}, ${new Date(j.run.made_at).toLocaleTimeString()}</span>` +
+    (state.fresh.size ? `<span class="news">${state.fresh.size} newly placed</span>` : '');
   drawMap();
   window.dispatchEvent(new CustomEvent('map-loaded'));
 }
@@ -175,7 +186,19 @@ async function start() {
   try { saved = localStorage.getItem('automatu.repo'); } catch (_) {}
   if (saved && repos.some((x) => x.repo === saved)) sel.value = saved;
   sel.addEventListener('change', () => { try { localStorage.setItem('automatu.repo', sel.value); } catch (_) {} loadMap(sel.value); });
-  loadMap(sel.value);
+  await loadMap(sel.value);
+  setInterval(() => follow(sel).catch(() => {}), 4000);
+}
+
+/* The live map: when the server has made a newer map of the repository shown,
+   redraw it in place (t-5b98c27370). */
+async function follow(sel) {
+  const { repos } = await (await fetch('/api/repos')).json();
+  for (const x of repos) {
+    if (![...sel.options].some((o) => o.value === x.repo)) sel.appendChild(Object.assign(document.createElement('option'), { value: x.repo, textContent: x.repo.split('/').pop() }));
+  }
+  const now = repos.find((x) => x.repo === sel.value);
+  if (now && state.map && now.id !== state.map.run.id) await loadMap(sel.value, { follow: true });
 }
 
 addEventListener('resize', () => sizeLabels());

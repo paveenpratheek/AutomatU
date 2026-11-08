@@ -70,3 +70,9 @@ def plan_sections(binding: dict | None, all_sections: list[Section]) -> list[Sec
 
 def repos_of(canvas: str) -> list[str]:
     return [r[0] for r in db().execute("SELECT repo FROM binding WHERE canvas = %s ORDER BY repo", (canvas,))]
+
+
+def all_bindings() -> list[dict]:
+    """Every bound repository, for the live map's watcher."""
+    cur = db().execute("SELECT repo, canvas, totem, bound_at FROM binding ORDER BY repo")
+    return [dict(zip(("repo", "canvas", "totem", "bound_at"), r)) for r in cur]

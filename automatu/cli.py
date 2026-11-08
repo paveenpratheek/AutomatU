@@ -8,7 +8,8 @@
   automatu align <repo>           place its regions under the plan's sections
                                   and keep the map as a snapshot
   automatu calibrate [--write]    set the placement numbers on the Harness canvas
-  automatu serve [--port 7790]    the map view, on 127.0.0.1
+  automatu serve [--port 7790]    the map view on 127.0.0.1, making a new map on
+                                  every commit or plan change (--no-watch to only show)
 """
 from __future__ import annotations
 
@@ -70,8 +71,8 @@ def _calibrate(a) -> None:
 
 def _serve(a) -> None:
     from .serve import serve
-    print(f"map view on http://127.0.0.1:{a.port}  (Ctrl+C to stop)")
-    serve(port=a.port)
+    print(f"map view on http://127.0.0.1:{a.port}" + ("" if a.no_watch else ", making a new map on every commit or plan change") + "  (Ctrl+C to stop)")
+    serve(port=a.port, watch=not a.no_watch)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,7 +87,10 @@ def main(argv: list[str] | None = None) -> int:
     al = sub.add_parser("align", help="place a repository's regions under its plan"); al.add_argument("repo"); al.set_defaults(fn=_align)
     c = sub.add_parser("calibrate", help="set the placement numbers on the Harness canvas")
     c.add_argument("--write", action="store_true", help="write calibration.json"); c.set_defaults(fn=_calibrate)
-    v = sub.add_parser("serve", help="the map view"); v.add_argument("--port", type=int, default=7790); v.set_defaults(fn=_serve)
+    v = sub.add_parser("serve", help="the map view, kept live")
+    v.add_argument("--port", type=int, default=7790)
+    v.add_argument("--no-watch", action="store_true", help="only show maps, do not make new ones")
+    v.set_defaults(fn=_serve)
     a = p.parse_args(argv)
     try:
         migrate()

@@ -1,6 +1,6 @@
 """The map view's server, a FastAPI app: the page in web/, and the newest map
-snapshots as JSON. On 127.0.0.1 only, and read-only - it serves what AutomatU
-already made and changes nothing (t-9b8317f00e).
+snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e); with the
+watcher on it also makes new maps as the work happens (t-3e56993cc4).
 """
 from __future__ import annotations
 
@@ -43,6 +43,16 @@ async def no_cache(request, call_next):
 app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
 
 
-def serve(port: int = 7790) -> None:
+def serve(port: int = 7790, watch: bool = True, every: float = 4.0) -> None:
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    watcher = None
+    if watch:
+        # The live map: new maps are made as the work happens (t-5b98c27370).
+        from .watch import Watcher
+        watcher = Watcher(every=every)
+        watcher.start()
+    try:
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    finally:
+        if watcher:
+            watcher.stop()

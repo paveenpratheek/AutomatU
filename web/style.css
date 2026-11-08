@@ -34,6 +34,14 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font); di
 .pick select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; max-width: 60vw; }
 .meta { margin: 0; color: var(--ink-2); font-size: 13px; }
 .meta b { color: var(--ink); font-weight: 600; }
+.meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+.meta .stat b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.meta .sub, .meta .where { color: var(--ink-2); }
+.meta .news { color: var(--accent); font-weight: 600; animation: news 6s ease-out forwards; }
+@keyframes news { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.hex.fresh { stroke: var(--ink); stroke-width: 2; animation: landed 1.4s ease-in-out 4; }
+@keyframes landed { 0%, 100% { filter: none; } 50% { filter: brightness(1.45) drop-shadow(0 0 5px var(--accent)); } }
+@media (prefers-reduced-motion: reduce) { .hex.fresh, .meta .news { animation: none; } }
 
 .body { flex: 1; display: flex; min-height: 0; }
 .mapwrap { flex: 1; min-width: 0; overflow: hidden; padding: 16px; display: flex; }
