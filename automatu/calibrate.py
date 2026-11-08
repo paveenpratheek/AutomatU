@@ -27,7 +27,11 @@ from .sources.canvas import read_canvas
 from .sources.gitx import Repo, read_repo
 
 CANVAS = "Harness"
-REPOS = ["E:/Coding CLI/Project Harness", "E:/Coding CLI/Project NoteX", "E:/Coding CLI/Project CanvasX"]
+# Each repository with the totem on the Harness canvas that is its plan - checked
+# the way a binding with a plan totem places code (t-ea1ec85327). CanvasX is left
+# out: its canvas does not hold its whole plan, and its GitX record was added
+# after it was built without git or GitX (t-eaf9d9833a).
+REPOS = {"E:/Coding CLI/Project Harness": "RAGX", "E:/Coding CLI/Project NoteX": "NoteX"}
 WRONG_COST = 2
 MAX_SHARED = 3
 # A commit that wrote most of the lines of a large share of a repository's
@@ -94,18 +98,21 @@ def score(places: list[tuple[str, dict]], known: dict[str, set[str]]) -> dict:
 def run(write: bool = False, log=print) -> dict:
     canvas = read_canvas(CANVAS)
     sv, _ = section_vectors(canvas)
-    vectors, known = {}, {}
-    for d in REPOS:
+    known: dict[str, set[str]] = {}
+    ranked = []
+    boxes = 0
+    for d, totem in REPOS.items():
         t0 = time.time()
         repo = read_repo(d)
         rv, made = region_vectors(repo, d)
-        k = known_links(repo, canvas.sections)
-        vectors.update({d + "|" + i: v for i, v in rv.items()})
+        # Only the repository's own plan totem: its boxes are the candidates and the answer (t-a9e613798d).
+        plan = [s for s in canvas.sections if s.totem == totem]
+        boxes += len(plan)
+        k = known_links(repo, plan)
         known.update({d + "|" + i: c for i, c in k.items()})
-        log(f"{d}: {len(repo.regions)} regions, {len(rv)} with a vector, {len(k)} known; {made} embedded in {time.time() - t0:.0f} s")
-
-    # Every cosine once, then the grid only decides from the rankings.
-    ranked = rank_sections(vectors, sv)
+        # Every cosine once, then the grid only decides from the rankings.
+        ranked += [(d + "|" + r, rk) for r, rk in rank_sections(rv, {s.address: sv[s.address] for s in plan if s.address in sv})]
+        log(f"{d} on totem {totem}: {len(repo.regions)} regions, {len(rv)} with a vector, {len(plan)} boxes, {len(k)} known; {made} embedded in {time.time() - t0:.0f} s")
     decide_all = lambda n: [(r, decide(rk, n)) for r, rk in ranked]
 
     def search(overlaps):
@@ -127,7 +134,7 @@ def run(write: bool = False, log=print) -> dict:
     line = lambda r: (f"{r['placed']} regions placed ({r['shared']} in more than one section), {r['placements']} placements: "
                       f"{r['correct']} right, {r['wrong']} wrong; precision {pct(r['precision'])}, coverage {pct(r['coverage'])}")
     n = best["n"]
-    log(f"\n{len(known)} known regions, {len(canvas.sections)} boxes; nearest box right (top-1): {pct(open_['top1'])}")
+    log(f"\n{len(known)} known regions, {boxes} plan boxes; nearest box right (top-1): {pct(open_['top1'])}")
     log(f"single placement:  min_score {single['n'].min_score}, min_margin {single['n'].min_margin} - {line(single)}")
     log(f"with Venn overlap: min_score {n.min_score}, min_margin {n.min_margin}, overlap {n.overlap} - {line(best)}")
 
@@ -137,7 +144,7 @@ def run(write: bool = False, log=print) -> dict:
         "result": {k: (round(best[k], 4) if isinstance(best[k], float) else best[k])
                    for k in ("known", "placed", "shared", "placements", "correct", "wrong", "precision", "coverage")} | {"top1": round(open_["top1"], 4)},
         # The pass mark for aligning AutomatU's own code, fixed here, before it
-        # runs: precision at least 90%, coverage at least calibration's own.
+        # runs: precision at least 90%, coverage at least calibration's own (t-318ebf8e44).
         "selfTest": {"minPrecision": 0.9, "minCoverage": math.ceil(best["coverage"] * 100) / 100,
                      "truth": "the sections of the commits holding at least 20% of a region's lines, from the answer key kept outside the repository"},
     }

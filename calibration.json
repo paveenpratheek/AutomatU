@@ -2,30 +2,29 @@
   "made": "2026-11-08",
   "model": "bge-m3",
   "canvas": "Harness",
-  "repos": [
-    "E:/Coding CLI/Project Harness",
-    "E:/Coding CLI/Project NoteX",
-    "E:/Coding CLI/Project CanvasX"
-  ],
+  "repos": {
+    "E:/Coding CLI/Project Harness": "RAGX",
+    "E:/Coding CLI/Project NoteX": "NoteX"
+  },
   "wrongCost": 2,
   "minScore": 0.76,
-  "minMargin": 0.0325,
-  "overlap": 0.025,
+  "minMargin": 0.0425,
+  "overlap": 0.015,
   "maxShared": 3,
   "result": {
-    "known": 1237,
-    "placed": 572,
-    "shared": 87,
-    "placements": 663,
-    "correct": 625,
-    "wrong": 38,
-    "precision": 0.9427,
-    "coverage": 0.4414,
-    "top1": 0.6896
+    "known": 1131,
+    "placed": 571,
+    "shared": 107,
+    "placements": 678,
+    "correct": 623,
+    "wrong": 55,
+    "precision": 0.9189,
+    "coverage": 0.4987,
+    "top1": 0.7383
   },
   "selfTest": {
     "minPrecision": 0.9,
-    "minCoverage": 0.45,
+    "minCoverage": 0.5,
     "truth": "the sections of the commits holding at least 20% of a region's lines, from the answer key kept outside the repository"
   }
 }
