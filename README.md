@@ -37,6 +37,10 @@ instead of copied.
    code to itself.
 4. **Every map is a snapshot,** with the commit and the numbers it was made
    with, so it reads the same later.
+5. **The map follows the work.** While the map view runs, every new commit or
+   change to the plan makes a new map by itself, and the open page redraws
+   with the newly placed code glowing - an agent commits, and its code is
+   seen landing under its plan box.
 
 ## Measured
 
