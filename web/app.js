@@ -12,6 +12,7 @@
 import { model, pathTo, boxesUnder, under, canvasLayout, rootLayout, spiral, fit, hexPts, ghostRing } from './hexmain.js';
 import { keywords, hitsOf, shownAndOn, dominant, traffic, regionHits, zeros } from './search.js';
 import { buildCodeMap, hexD, regionAt } from './codelayout.js';
+import { boardHtml, routeWires, wiresHtml, worldRect } from './board.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -460,10 +461,13 @@ function renderChrome() {
   const Q = search();
   $('term').classList.toggle('on', !!S.query.trim());
   $('chips').innerHTML = CHIPS.map((c) => `<button type="button" class="pill${S.query.trim().toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-chip="${esc(c)}">${esc(c)}</button>`).join('');
-  $('tabs').innerHTML = [['Main', 'main', ''], ['Code', 'code', ''], ['Canvas', 'canvas', 'The open canvas comes after the demo']].map(([l, k, why]) =>
-    `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}"${why ? ` disabled title="${esc(why)}"` : ''}>${l}</button>`).join('');
+  const target = S.m ? boardTarget() : null;
+  $('tabs').innerHTML = [['Main', 'main', 'The hexagon map: find things'], ['Code', 'code', 'The code map: the plan and its code'],
+    ['Canvas', 'canvas', target ? 'Open the ' + S.m.reg[target].name + ' canvas, as CanvasX shows it' : 'Pick a canvas on the map first']].map(([l, k, why]) =>
+    `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}" title="${esc(why)}"${k === 'canvas' && !target ? ' disabled' : ''}>${l}</button>`).join('');
   let crumbs;
   if (S.tab === 'main' && S.m) crumbs = S.path.filter((id) => S.m.reg[id]).map((id, i, arr) => ({ name: S.m.reg[id].name, go: i < arr.length - 1 ? 'path:' + i : '' }));
+  else if (S.tab === 'canvas' && S.m && S.bcanvas) crumbs = [{ name: 'Map', go: 'path:0' }, { name: S.m.reg[S.bcanvas].name, go: 'canvas:' + S.bcanvas }, { name: 'Open canvas', go: '' }];
   else crumbs = [{ name: 'Code map', go: '' }].concat(S.repo ? [{ name: S.repo.split('/').pop(), go: '' }] : []);
   $('crumbs').innerHTML = crumbs.map((c, i) => (i ? '<span class="arrow" aria-hidden="true">›</span>' : '') + `<button type="button" class="crumb${c.go ? '' : ' last'}" data-crumb="${c.go}">${esc(c.name)}</button>`).join('');
   const shown = Q.kw.map((k, i) => ({ k, i })).filter(({ i }) => Q.on[i].shown);
@@ -476,8 +480,98 @@ function renderChrome() {
 
 export function render() {
   renderChrome();
-  if (S.tab === 'code') renderCode(); else renderMain();
+  $('panel').hidden = S.tab === 'canvas';
+  if (S.tab === 'code') renderCode();
+  else if (S.tab === 'canvas') renderBoard();
+  else renderMain();
 }
+
+/* ------------------------------------------------------------ the open canvas */
+
+/* The canvas the Canvas tab opens: the one being looked at on the Main map,
+   else the one opened last, else the first. */
+function boardTarget() {
+  const reg = S.m.reg;
+  if (S.sel && reg[S.sel]) return reg[S.sel].canvas;
+  if (S.path.length > 1 && reg[S.path[1]]) return S.path[1];
+  if (S.bcanvas && reg[S.bcanvas]) return S.bcanvas;
+  return reg.root.children[0] || null;
+}
+
+const WIRE = ['#B0447A', '#2F5BD3', '#C2571A', '#1F7A6E', '#6B4FBB'];
+
+function renderBoard() {
+  const stage = $('stage'), reg = S.m.reg, cid = S.bcanvas;
+  if (!cid || !reg[cid]) { stage.innerHTML = '<div class="status">Pick a canvas on the map first.</div>'; return; }
+  const Q = search(), on = Q.kw.map((k, i) => Q.on[i].on);
+  const hot = (it) => Q.terms.length && hitsOf(Q.kw, it.name + ' ' + it.text).some((v, i) => v > 0 && on[i]);
+  const { html, totems } = boardHtml(S.m, cid, palOf, hot, Q.terms[0] || '');
+  const x = reg[cid];
+  stage.innerHTML = `<div class="bvp" id="bvp"><div class="bworld" id="bworld">${html}</div>` +
+    `<div class="bbanner"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>` +
+    `<div class="bbt"><b>The whole ${esc(x.name)} canvas.</b> ${x.agent ? 'An agent canvas: agents rewrite it one totem script at a time, through NoteX.' : 'Your own canvas in File Fabric; edit it there.'} Drag to move, scroll to zoom.</div>` +
+    `<button type="button" class="bback" data-tab="main">Back to map</button></div>` +
+    `<div class="bbar"><button type="button" class="bfit" data-bfit="1">Whole canvas</button>` +
+    totems.map((t) => `<button type="button" class="bchip" data-btotem="${t.id}"><span class="sw" style="background:${t.swatch}"></span>${esc(t.name)}</button>`).join('') +
+    `<span style="flex:1"></span><span class="muted" style="font-size:12px;margin-right:8px" id="bwires"></span>` +
+    `<button type="button" class="zb" data-bzoom="-1" aria-label="Zoom out">−</button><span class="zl" id="bzl"></span><button type="button" class="zb" data-bzoom="1" aria-label="Zoom in">+</button></div></div>`;
+  const world = $('bworld');
+  const place = () => {
+    if (!S.bview || S.bview.cid !== cid) S.bview = { cid, ...boardFit(worldRect(world, 1, null)) };
+    applyBoard();
+    /* Wires are measured at the zoom in force, then drawn in the board's own pixels. */
+    const pairs = S.m.blinks.filter((l) => reg[l.a] && reg[l.a].canvas === cid)
+      .map((l) => ({ a: `[data-bid="${l.a}"]`, b: `[data-bid="${l.b}"]`, color: WIRE[(reg[reg[l.a].totem].pal || 0) % WIRE.length] }));
+    const wires = routeWires(world, S.bview.z, pairs, '[data-bid], [data-obst]', 6);
+    world.insertAdjacentHTML('beforeend', wiresHtml(wires));
+    const n = $('bwires'); if (n) n.textContent = wires.length + (wires.length === 1 ? ' link' : ' links');
+  };
+  /* Fonts change box sizes, so measure once they are in. */
+  requestAnimationFrame(() => (document.fonts && document.fonts.ready ? document.fonts.ready.then(place) : place()));
+}
+
+function boardFit(r) {
+  const { w, h } = stageSize(), top = 84, bottom = 70;
+  const z = Math.max(0.05, Math.min(1.1, (w - 80) / r.w, (h - top - bottom) / r.h));
+  return { z, tx: (w - r.w * z) / 2 - r.l * z, ty: top + (h - top - bottom - r.h * z) / 2 - r.t * z };
+}
+
+function applyBoard() {
+  const world = $('bworld'), vp = $('bvp'), V = S.bview;
+  if (!world || !V) return;
+  world.style.transform = `translate(${V.tx}px, ${V.ty}px) scale(${V.z})`;
+  const dot = Math.max(8, 24 * V.z);
+  vp.style.backgroundSize = dot + 'px ' + dot + 'px';
+  vp.style.backgroundPosition = V.tx + 'px ' + V.ty + 'px';
+  const zl = $('bzl'); if (zl) zl.textContent = Math.round(V.z * 100) + '%';
+}
+
+function boardZoomAt(px_, py_, z2) {
+  const V = S.bview, z = Math.max(0.05, Math.min(2.5, z2));
+  V.tx = px_ - (px_ - V.tx) * (z / V.z); V.ty = py_ - (py_ - V.ty) * (z / V.z); V.z = z;
+  applyBoard();
+}
+
+let bdrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const vp = e.target.closest && e.target.closest('#bvp');
+  if (!vp || e.button !== 0 || e.target.closest('button') || !S.bview) return;
+  bdrag = { x: e.clientX, y: e.clientY, tx: S.bview.tx, ty: S.bview.ty };
+  vp.setPointerCapture(e.pointerId);
+});
+document.addEventListener('pointermove', (e) => {
+  if (!bdrag) return;
+  S.bview.tx = bdrag.tx + e.clientX - bdrag.x; S.bview.ty = bdrag.ty + e.clientY - bdrag.y;
+  applyBoard();
+});
+document.addEventListener('pointerup', () => { bdrag = null; });
+document.addEventListener('wheel', (e) => {
+  const vp = e.target.closest && e.target.closest('#bvp');
+  if (!vp || !S.bview) return;
+  e.preventDefault();
+  const rect = vp.getBoundingClientRect();
+  boardZoomAt(e.clientX - rect.left, e.clientY - rect.top, S.bview.z * Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
 
 /* ------------------------------------------------------------ events */
 
@@ -490,9 +584,19 @@ document.addEventListener('click', (e) => {
   if (d.act === 'open') return go(pathTo(S.m.reg, d.id), null, +d.x || 0, +d.y || 0, 1);
   if (d.act === 'read') { S.sel = d.id; return render(); }
   if (d.crumb) {
-    if (d.crumb.startsWith('path:')) return go(S.path.slice(0, +d.crumb.slice(5) + 1), null, 0, 0, -1);
+    if (d.crumb.startsWith('canvas:')) { S.tab = 'main'; return go(pathTo(S.m.reg, d.crumb.slice(7)), null, 0, 0, -1); }
+    if (d.crumb.startsWith('path:')) { S.tab = 'main'; return go(S.path.slice(0, +d.crumb.slice(5) + 1), null, 0, 0, -1); }
   }
-  if (d.tab) { if (S.tab !== d.tab) { S.tab = d.tab; if (d.tab === 'code') loadCode(); render(); } return; }
+  if (d.tab) {
+    if (S.tab !== d.tab) {
+      if (d.tab === 'canvas') { const t = boardTarget(); if (t !== S.bcanvas) S.bview = null; S.bcanvas = t; }
+      S.tab = d.tab; if (d.tab === 'code') loadCode(); render();
+    }
+    return;
+  }
+  if (d.bfit) { S.bview = null; return render(); }
+  if (d.btotem) { const r = worldRect($('bworld'), S.bview.z, `[data-tid="${d.btotem}"]`); if (r) { Object.assign(S.bview, boardFit(r)); applyBoard(); } return; }
+  if (d.bzoom) { const { w, h } = stageSize(); return boardZoomAt(w / 2, h / 2, S.bview.z * (d.bzoom === '1' ? 1.25 : 0.8)); }
   if (d.chip) { const on = S.query.trim().toLowerCase() === d.chip.toLowerCase(); S.query = on ? '' : d.chip; S.off = {}; $('term').value = S.query; return render(); }
   if (d.kw) { S.off[d.kw] = !S.off[d.kw]; return render(); }
   if (d.repo) { S.repo = d.repo; S.cg = null; S.cc = null; S.fresh = new Set(); try { localStorage.setItem('automatu.repo', d.repo); } catch (_) {} loadCode(); return render(); }
@@ -561,6 +665,11 @@ function fromLink() {
   if (u.get('q')) { S.query = u.get('q'); $('term').value = S.query; }
   if (u.get('repo')) { const r = S.repos.find((x) => x.repo.split('/').pop().toLowerCase() === u.get('repo').toLowerCase()); if (r) S.repo = r.repo; }
   if (u.get('tab') === 'code') S.tab = 'code';
+  if (u.get('tab') === 'canvas' && S.m) {
+    const name = (u.get('canvas') || '').toLowerCase();
+    S.bcanvas = S.m.reg.root.children.find((id) => S.m.reg[id].name.toLowerCase() === name) || S.m.reg.root.children[0];
+    S.tab = 'canvas';
+  }
   if (u.get('box')) S.pendingBox = u.get('box');
   if (u.get('open') && S.m) {
     let at = 'root';
