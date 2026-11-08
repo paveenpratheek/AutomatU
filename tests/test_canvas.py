@@ -50,3 +50,16 @@ def test_the_tree_keeps_cdata_and_attributes():
     root = parse_script('<A x="1 &amp; 2"><![CDATA[<svg/>]]></A>')
     assert root.children[0].attrs["x"] == "1 & 2"
     assert root.children[0].text == "<svg/>"
+
+
+def test_the_tree_keeps_totems_sub_totems_boxes_and_links():
+    from automatu.sources.canvas import tree
+    script = ('<Canvas name="P"><Totem name="Build" owner="agent"><Text>About.</Text>'
+              '<Row><Area name="1. Read"><Note name="Files">- read</Note><Area name="Inner"/></Area><Area name="2. Show"/></Row>'
+              '<SubTotem name="Later"><Area name="Agents"/></SubTotem><Link from="1. Read" to="2. Show"/></Totem></Canvas>')
+    [t] = tree(script)
+    assert (t["name"], t["owner"], t["text"]) == ("Build", "agent", "About.")
+    assert [b["name"] for b in t["boxes"]] == ["1. Read", "2. Show"]
+    assert t["boxes"][0]["items"][0]["name"] == "Files" and t["boxes"][0]["boxes"][0]["name"] == "Inner"
+    assert t["subs"][0]["name"] == "Later" and t["subs"][0]["boxes"][0]["name"] == "Agents"
+    assert t["links"] == [["1. Read", "2. Show"]]

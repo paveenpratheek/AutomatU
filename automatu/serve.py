@@ -32,6 +32,26 @@ def map_of(repo: str) -> dict:
     return m
 
 
+@app.get("/api/canvases")
+def canvases() -> dict:
+    """The bound canvases, for the Main map (t-87c7947c95)."""
+    from .views import canvases_view
+    return canvases_view()
+
+
+@app.get("/api/code")
+def code(repo: str) -> dict:
+    """A repository's newest map with what the traffic search reads, for the Code map."""
+    from .views import code_view
+    try:
+        v = code_view(repo)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not v:
+        raise HTTPException(404, "no map for this repository yet: automatu align <repo>")
+    return v
+
+
 @app.middleware("http")
 async def no_cache(request, call_next):
     res = await call_next(request)

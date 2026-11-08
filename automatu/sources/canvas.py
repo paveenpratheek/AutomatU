@@ -37,6 +37,11 @@ class Canvas:
 
 def read_canvas_script(name: str) -> str:
     """The canvas as its totem script, the same text notex_read gives an agent."""
+    return read_canvas_raw(name)["script"]
+
+
+def read_canvas_raw(name: str) -> dict:
+    """NoteX's answer for a canvas: its script, and whether it is an agent canvas."""
     try:
         with open(NOTEX_RUNTIME, encoding="utf-8") as f:
             rt = json.load(f)
@@ -46,7 +51,8 @@ def read_canvas_script(name: str) -> str:
                                  headers={"x-notex-token": rt["token"]})
     try:
         with urllib.request.urlopen(req, timeout=60) as res:
-            return json.loads(res.read().decode("utf-8"))["script"]
+            j = json.loads(res.read().decode("utf-8"))
+            return {"script": j["script"], "agent": bool(j.get("agent"))}
     except urllib.error.HTTPError as e:
         try:
             msg = json.loads(e.read().decode("utf-8")).get("error", {}).get("message")
@@ -158,3 +164,56 @@ def sections(script: str) -> list[Section]:
 
 def read_canvas(name: str) -> Canvas:
     return Canvas(name=name, sections=sections(read_canvas_script(name)))
+
+
+def tree(script: str) -> list[dict]:
+    """The canvas as the map view walks it: totems, their sub-totems and boxes,
+    boxes inside boxes, and the notes, texts and files on each - with the links
+    each totem draws between its boxes, as written ("Box > Note")."""
+    def item(n: Node) -> dict:
+        edited = n.attrs.get("edited") == "by the user" or n.attrs.get("owner") == "user"
+        if n.tag == "File":
+            path = n.attrs.get("path") or n.attrs.get("name") or ""
+            return {"type": "file", "label": "Image" if n.attrs.get("kind") == "image" else "File",
+                    "name": re.sub(r"\.png$", "", path, flags=re.I), "text": "", "edited": edited}
+        return {"type": n.tag.lower(), "label": n.tag, "name": n.attrs.get("name", "") if n.tag == "Note" else "",
+                "text": _clean(n.text), "edited": edited}
+
+    def fill(node: Node, owner: dict, links: list) -> None:
+        for c in node.children:
+            if c.tag == "Area":
+                box = {"kind": "box", "name": c.attrs.get("name", ""), "items": [], "boxes": []}
+                owner["boxes"].append(box)
+                fill(c, box, links)
+            elif c.tag == "SubTotem" and owner["kind"] == "totem":
+                sub = {"kind": "sub", "name": c.attrs.get("name", ""), "text": "", "items": [], "boxes": []}
+                owner["subs"].append(sub)
+                fill(c, sub, links)
+            elif c.tag in ("Note", "Text", "File"):
+                it = item(c)
+                if owner["kind"] in ("totem", "sub") and c.tag == "Text":
+                    owner["text"] = (owner["text"] + "\n\n" if owner["text"] else "") + it["text"]
+                else:
+                    owner["items"].append(it)
+            elif c.tag == "Link":
+                links.append([c.attrs.get("from", ""), c.attrs.get("to", "")])
+            else:
+                fill(c, owner, links)  # Row, Column: layout only
+
+    out = []
+    for t in _all(parse_script(script), "Totem"):
+        totem = {"kind": "totem", "name": t.attrs.get("name", ""), "owner": t.attrs.get("owner", ""),
+                 "text": "", "items": [], "boxes": [], "subs": [], "links": []}
+        fill(t, totem, totem["links"])
+        out.append(totem)
+    return out
+
+
+def _all(node: Node, tag: str) -> list[Node]:
+    found = []
+    for c in node.children:
+        if c.tag == tag:
+            found.append(c)
+        else:
+            found += _all(c, tag)
+    return found
