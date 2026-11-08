@@ -22,7 +22,7 @@ const CALIBRATION = path.join(path.dirname(fileURLToPath(import.meta.url)), '..'
 export function calibrated() {
   try {
     const c = JSON.parse(fs.readFileSync(CALIBRATION, 'utf8'));
-    return { minScore: c.minScore, minMargin: c.minMargin };
+    return { minScore: c.minScore, minMargin: c.minMargin, overlap: c.overlap || 0, maxShared: c.maxShared || 3 };
   } catch (_) {
     throw new Error('no calibration.json yet: run the calibration before placing code');
   }
@@ -41,11 +41,11 @@ export async function makeMap(dir, numbers = calibrated()) {
   try {
     await c.query('BEGIN');
     const run = (await c.query(
-      'INSERT INTO map_run (repo, canvas, head, model, min_score, min_margin, regions, placed) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, made_at',
-      [key, b.canvas, repo.head, MODEL, numbers.minScore, numbers.minMargin, places.length, placed])).rows[0];
+      'INSERT INTO map_run (repo, canvas, head, model, min_score, min_margin, overlap, regions, placed) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, made_at',
+      [key, b.canvas, repo.head, MODEL, numbers.minScore, numbers.minMargin, numbers.overlap || 0, places.length, placed])).rows[0];
     for (const p of places) {
-      await c.query('INSERT INTO placement (run_id, region, section, best, score, margin) VALUES ($1,$2,$3,$4,$5,$6)',
-        [run.id, p.region, p.section, p.best, p.score, p.margin]);
+      await c.query('INSERT INTO placement (run_id, region, section, sections, near, best, score, margin) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [run.id, p.region, p.section, p.sections, p.near, p.best, p.score, p.margin]);
     }
     await c.query('COMMIT');
     return { run: run.id, madeAt: run.made_at, repo: key, canvas: b.canvas, head: repo.head, regions: places.length, placed,
@@ -63,6 +63,6 @@ export async function latestMap(dir) {
   const key = repoKey(dir);
   const run = (await db().query('SELECT * FROM map_run WHERE repo = $1 ORDER BY made_at DESC, id DESC LIMIT 1', [key])).rows[0];
   if (!run) return null;
-  const places = (await db().query('SELECT region, section, best, score, margin FROM placement WHERE run_id = $1 ORDER BY region', [run.id])).rows;
+  const places = (await db().query('SELECT region, section, sections, near, best, score, margin FROM placement WHERE run_id = $1 ORDER BY region', [run.id])).rows;
   return { run, places };
 }

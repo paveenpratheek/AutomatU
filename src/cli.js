@@ -35,8 +35,10 @@ async function main() {
     const m = await makeMap(pos[0]);
     console.log(`map ${m.run}: ${m.repo} at ${m.head} on ${m.canvas} - ${m.placed} of ${m.regions} regions placed, ${m.regions - m.placed} not yet placed`);
     const by = {};
-    for (const p of m.places) if (p.section) by[p.section] = (by[p.section] || 0) + 1;
+    for (const p of m.places) for (const s of p.sections) by[s] = (by[s] || 0) + 1;
+    const shared = m.places.filter((p) => p.sections.length > 1).length;
     for (const s of m.sections) console.log(`  ${String(by[s] || 0).padStart(4)}  ${s}`);
+    if (shared) console.log(`  ${shared} of the placed regions sit in more than one section`);
   } else {
     console.log(USAGE);
     process.exitCode = 2;
