@@ -56,6 +56,19 @@ def canvas_image_of(canvas: str, id: str) -> Response:
     return Response(content=got[0], media_type=got[1])
 
 
+@app.get("/api/relations")
+def relations_of(canvas: str) -> dict:
+    """Which boxes on a bound canvas are related, and why (t-5d0347338f)."""
+    from .binding import all_bindings
+    from .relations import relations
+    if canvas not in {b["canvas"] for b in all_bindings()}:
+        raise HTTPException(404, "not a canvas bound to a repository")
+    try:
+        return relations(canvas)
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
 @app.get("/api/code")
 def code(repo: str) -> dict:
     """A repository's newest map with what the traffic search reads, for the Code map."""

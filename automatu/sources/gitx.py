@@ -67,6 +67,7 @@ class Repo:
     regions: list[Region]
     commits: dict[str, Commit]
     thoughts: dict[str, Thought]
+    uses: list[tuple[str, str]] = field(default_factory=list)  # (user region, declaring region)
 
 
 def _git(dir: str, *args: str) -> str:
@@ -129,12 +130,17 @@ def read_thoughts(dir: str) -> dict[str, Thought]:
     return out
 
 
-def gitx_regions(dir: str) -> list[dict]:
-    """GitX's own regions at HEAD, through the Node bridge (t-3dc4ff4d62)."""
+def gitx_read(dir: str) -> dict:
+    """GitX's own regions at HEAD through the Node bridge (t-3dc4ff4d62), with
+    the uses between them: [user region id, declaring region id] pairs."""
     res = subprocess.run(["node", str(BRIDGE), dir, GITX_DIR], capture_output=True, text=True, encoding="utf-8")
     if res.returncode != 0:
         raise RuntimeError("GitX could not read the regions of " + dir + ": " + res.stderr.strip()[-500:])
-    return json.loads(res.stdout)["regions"]
+    return json.loads(res.stdout)
+
+
+def gitx_regions(dir: str) -> list[dict]:
+    return gitx_read(dir)["regions"]
 
 
 def read_repo(dir: str) -> Repo:
@@ -150,8 +156,9 @@ def read_repo(dir: str) -> Repo:
         for c in {t.resulted, t.commit} - {""}:
             by_commit.setdefault(c, []).append(t.id)
 
+    read = gitx_read(dir)
     regions: list[Region] = []
-    for r in gitx_regions(dir):
+    for r in read["regions"]:
         if SCAFFOLD.search(r["file"]):
             continue
         live = sorted(((sha[:12], n) for sha, n in r["commits"].items()), key=lambda x: -x[1])
@@ -162,4 +169,6 @@ def read_repo(dir: str) -> Repo:
             id=r["file"] + "::" + r["name"], file=r["file"], name=r["name"], kind=r.get("kind"),
             start=r["from"], end=r["to"], commits=live, thoughts=list(dict.fromkeys(cited + via_commit)),
         ))
-    return Repo(dir=dir, head=head, regions=regions, commits=commits, thoughts=thoughts)
+    known = {r.id for r in regions}
+    uses = [(a, b) for a, b in read.get("uses") or [] if a in known and b in known and a != b]
+    return Repo(dir=dir, head=head, regions=regions, commits=commits, thoughts=thoughts, uses=uses)

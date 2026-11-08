@@ -142,6 +142,11 @@ button { font: inherit; color: inherit; }
 .item .nm { font-size: 14px; font-weight: 600; }
 .item .ed { font-size: 11px; font-weight: 600; background: #DCE6FA; color: #1D3E8A; border-radius: 6px; padding: 1px 6px; }
 .item .tx { font-size: 14px; line-height: 1.55; white-space: pre-line; color: #2A2C31; }
+.why { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; font-size: 13px; line-height: 1.5; color: #2A2C31; }
+.why b { font-weight: 600; }
+.why .lk { border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: #1D3E8A; cursor: pointer; text-decoration: underline; text-decoration-color: rgba(29, 62, 138, 0.3); }
+.dis { display: inline-block; font-size: 11px; font-weight: 600; background: #FCEBC4; color: #6B4500; border-radius: 6px; padding: 1px 6px; margin-left: 4px; }
+.muted { color: #6B6F76; }
 .chip { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; border-radius: 6px; padding: 3px 8px; }
 .where { font-size: 13px; color: var(--ink-3); }
 .trafficbox { border: 1px solid #F0D49A; background: #FFF8E8; border-radius: 10px; padding: 10px 12px; margin-bottom: 16px; }

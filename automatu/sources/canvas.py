@@ -162,6 +162,16 @@ def sections(script: str) -> list[Section]:
     return out
 
 
+def canvas_links(script: str) -> list[tuple[str, str, str]]:
+    """Every link on the canvas as (totem, from, to), its ends as written:
+    a name or path inside the totem, or a whole address into another one."""
+    out = []
+    for t in _all(parse_script(script), "Totem"):
+        for l in _all(t, "Link"):
+            out.append((t.attrs.get("name", ""), l.attrs.get("from", ""), l.attrs.get("to", "")))
+    return out
+
+
 def read_canvas(name: str) -> Canvas:
     return Canvas(name=name, sections=sections(read_canvas_script(name)))
 

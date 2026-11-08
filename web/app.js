@@ -13,6 +13,7 @@ import { model, pathTo, boxesUnder, under, canvasLayout, rootLayout, spiral, fit
 import { keywords, hitsOf, shownAndOn, dominant, traffic, regionHits, zeros } from './search.js';
 import { buildCodeMap, hexD, regionAt } from './codelayout.js';
 import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js';
+import { addressOf, indexRelations, relationLayout } from './relate.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -39,7 +40,7 @@ const grad = (inner, outer) => `radial-gradient(circle at 50% 42%, ${inner} 0%, 
 
 export const S = {
   tab: 'main', path: ['root'], sel: null, query: '', off: {}, dir: 1, tick: 0, ox: 0, oy: 0,
-  m: null, failed: '', layouts: {}, memo: {},
+  m: null, failed: '', layouts: {}, memo: {}, rel: {},
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
 };
 
@@ -102,7 +103,7 @@ function renderMain() {
   const heat = (id) => (Q.terms.length ? traffic(Q.on, heatArr(id)) : 0);
 
   const cells = [];
-  let cellList = [], F, ids = [];
+  let cellList = [], F, ids = [], arranged = null;
   const cellFor = (id, at, W, H, o) => {
     const x = reg[id], p = palOf(reg, id), hh = heat(id), sel = S.sel === id;
     const nm = x.name, lenDiv = nm.length > 26 ? 11 : (nm.length > 14 ? 9 : 7);
@@ -131,13 +132,22 @@ function renderMain() {
         sub: x.kind === 'totem' ? 'totem · ' + x.children.length + ' boxes' : x.children.length + ' boxes' }));
     }
   } else {
-    const kids = node.children, coords = spiral(Math.max(kids.length, 1));
+    /* Boxes placed by relation once the canvas's relations are in; until
+       then, and with nothing to relate, in reading order. */
+    const kids = node.children, R = relFor(reg[node.canvas].name);
+    let coords;
+    if (R.state === 'ok' && kids.length > 1) {
+      const A = Object.fromEntries(kids.map((id) => [id, addressOf(reg, id)]));
+      const L = S.layouts[view] || (S.layouts[view] = relationLayout(kids, (a, b) => { const e = R.idx.edge(A[a], A[b]); return e ? e.w : 0; }));
+      coords = kids.map((id) => L.cells[id]);
+      arranged = L.groups;
+    } else coords = spiral(Math.max(kids.length, 1));
     cellList = kids.length ? coords : [];
     F = fit(coords, 210, 80, w, h);
     kids.forEach((id, i) => {
       const leaf = isLeaf(reg, id);
       cells.push(cellFor(id, F.at(coords[i]), F.W, F.H, { kind: 'box', leaf, maxFs: 17,
-        sub: leaf ? countOf(reg, id) : reg[id].children.length + ' boxes inside' }));
+        sub: (arranged && arranged.bridges[id] ? 'bridge · ' : '') + (leaf ? countOf(reg, id) : reg[id].children.length + ' boxes inside') }));
     });
   }
   /* Traffic, graded among the hexagons in view: the busiest fully lit, the
@@ -175,7 +185,59 @@ function renderMain() {
     `<div class="legend">` + [['#CFC9BA', 'Canvas'], ['#9AA6C8', 'Totem'], ['#D4DCEF', 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#E39B0B', 'Traffic']]
       .map(([c, t]) => `<span><span class="sw hexclip" style="background:${c}"></span>${t}</span>`).join('') + `</div>`;
 
-  renderMainPanel(reg, view, node, ids.length ? ids : node.children, Q, heat, heatArr);
+  renderMainPanel(reg, view, node, ids.length ? ids : node.children, Q, heat, heatArr, arranged);
+}
+
+/* A canvas's relations, asked for once; the page redraws when they arrive. */
+function relFor(name) {
+  if (!S.rel[name]) {
+    S.rel[name] = { state: 'loading' };
+    getJson('/api/relations?canvas=' + encodeURIComponent(name))
+      .then((j) => { S.rel[name] = { state: 'ok', idx: indexRelations(j) }; })
+      .catch((e) => { S.rel[name] = { state: 'failed', msg: e.message }; })
+      .then(() => { S.layouts = {}; if (S.tab === 'main') render(); });
+  }
+  return S.rel[name];
+}
+
+const placeOf = (address) => address.split(' > ').slice(0, -1).map((s) => s.replace(/ \((totem|sub-totem)\)$/, '')).join(' › ');
+
+/* Why a box sits where it does: what it is related to here and why, whether
+   it is a bridge or alone, what it relates to elsewhere on the canvas, and
+   where the code and the canvas disagree. */
+function whyHere(reg, id, G, R) {
+  if (!R || R.state !== 'ok') return R && R.state === 'failed' ? `<h3>Why it sits here</h3><p class="muted">Relations could not be read: ${esc(R.msg)}</p>` : '';
+  const kids = reg[reg[id].parent].children, A = addressOf(reg, id);
+  const inView = new Map(kids.map((k) => [addressOf(reg, k), k]));
+  const lines = [];
+  const reason = (e) => esc(e.why.join('; ')) + (e.disagree ? ` <span class="dis">${esc(e.disagree)}</span>` : '');
+  if (G && G.bridges[id]) lines.push(`<p><b>A bridge</b> between ${G.bridges[id].map((ci) => G.clusters[ci].map((k) => esc(reg[k].name)).join(', ')).map((s) => '<i>' + s + '</i>').join(' and ')}.</p>`);
+  const here = kids.filter((k) => k !== id).map((k) => ({ k, e: R.idx.edge(A, addressOf(reg, k)) })).filter((x) => x.e);
+  const kept = here.filter(({ k }) => !G || !G.cut.some((c) => (c[0] === id && c[1] === k) || (c[1] === id && c[0] === k)));
+  const cutOff = here.filter((x) => !kept.includes(x));
+  if (kept.length) lines.push(`<div class="why">` + kept.map(({ k, e }) => `<div><button type="button" class="lk" data-act="read" data-id="${k}">${esc(reg[k].name)}</button> ${reason(e)}</div>`).join('') + `</div>`);
+  else if (!(G && G.bridges[id])) lines.push(`<p><b>Alone here:</b> nothing else in this view is related to it.</p>`);
+  if (cutOff.length) lines.push(`<p class="muted">Also related to ${cutOff.map(({ k }) => esc(reg[k].name)).join(', ')}, but kept in a separate group so this one does not grow into one lump.</p>`);
+  const away = R.idx.of(A).map((e) => (e.a === A ? e.b : e.a)).filter((o) => !inView.has(o) && !o.startsWith(A + ' > ') && !A.startsWith(o + ' > '));
+  if (away.length) lines.push(`<h3>Related elsewhere on the canvas</h3><div class="why">` + away.slice(0, 8).map((o) => `<div><b>${esc(short(o))}</b> <span class="muted">in ${esc(placeOf(o))}</span> ${reason(R.idx.edge(A, o))}</div>`).join('') + `</div>`);
+  const apart = (R.idx.data.apart || []).filter((e) => e.a === A || e.b === A);
+  if (apart.length) lines.push(`<h3>Kept apart by the code</h3><div class="why">` + apart.map((e) => { const o = e.a === A ? e.b : e.a; return `<div><b>${esc(short(o))}</b> <span class="dis">${esc(e.disagree)}</span></div>`; }).join('') + `</div>`);
+  return `<h3>Why it sits here</h3>` + lines.join('');
+}
+
+/* How a view's boxes are arranged: its clusters, bridges and boxes alone. */
+function arrangedHtml(reg, G, R) {
+  if (!R) return '';
+  if (R.state === 'loading') return `<h3>Arranged by relation</h3><p class="muted">Working out which boxes belong together…</p>`;
+  if (R.state === 'failed') return `<h3>Arranged by relation</h3><p class="muted">Shown in canvas order: ${esc(R.msg)}</p>`;
+  if (!G) return '';
+  const groups = G.clusters.filter((c) => c.length > 1), alone = G.clusters.filter((c) => c.length === 1 && !G.bridges[c[0]]).map((c) => c[0]);
+  const note = R.idx.data.meaning ? '' : `<p class="muted">${esc(R.idx.data.note || 'Closeness in meaning is off.')}</p>`;
+  return `<h3>Arranged by relation</h3><p>Related boxes touch; groups and boxes alone sit one hexagon apart. Pick a box to see why it is where it is.</p>` + note +
+    `<div class="why">` +
+    groups.map((c, i) => `<div><b>Group ${i + 1}:</b> ${c.map((k) => esc(reg[k].name)).join(', ')}</div>`).join('') +
+    Object.keys(G.bridges).map((b) => `<div><b>Bridge:</b> ${esc(reg[b].name)}</div>`).join('') +
+    (alone.length ? `<div><b>Alone:</b> ${alone.map((k) => esc(reg[k].name)).join(', ')}</div>` : '') + `</div>`;
 }
 
 function viewKind(reg, node) {
@@ -191,13 +253,14 @@ function contentHtml(c) {
     (c.text ? `<div class="tx">${esc(c.text)}</div>` : '') + `</div>`;
 }
 
-function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr) {
+function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
   const P = $('panel'), m = S.m;
+  const R = view !== 'root' && node.kind !== 'canvas' ? S.rel[reg[node.canvas].name] : null;
   if (S.sel && reg[S.sel]) {
     const it = reg[S.sel], p = palOf(reg, S.sel);
     const links = m.blinks.filter((l) => l.a === S.sel || l.b === S.sel).map((l) => (l.a === S.sel ? { dir: 'to', other: l.b, title: l.bn } : { dir: 'from', other: l.a, title: l.an }));
     P.innerHTML = `<div style="display:flex;align-items:center;gap:8px"><span class="chip" style="background:${p.fill};color:${p.ink}">Box</span><span class="where">in ${esc(pathTo(reg, it.parent).slice(1).map((k) => reg[k].name).join(' › '))}</span></div>` +
-      `<h2 style="margin:10px 0 16px">${esc(it.name)}</h2>` + it.content.map(contentHtml).join('') +
+      `<h2 style="margin:10px 0 16px">${esc(it.name)}</h2>` + whyHere(reg, S.sel, arranged, R) + it.content.map(contentHtml).join('') +
       (links.length ? `<h3>Linked on the canvas</h3><div class="rows">` + links.map((l) => `<button type="button" class="row" data-act="read" data-id="${l.other}"><span class="mt">${l.dir}</span><span class="nm">${esc(l.title)}</span></button>`).join('') + `</div>` : '');
     return;
   }
@@ -236,7 +299,7 @@ function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr) {
     (owner ? `<p class="owner">${esc(owner)}</p>` : '') +
     (view === 'root' ? '<p>Each canvas bound to a repository is a hexagon. Inside, each totem sits with its sub-totems around it: related ones touch, unrelated ones keep one hexagon of space, and different topics sit one hexagon apart.</p>' : (node.text ? `<p>${esc(node.text)}</p>` : '')) +
     `<div class="stats">${stats.map(([n, l]) => `<div><b>${n}</b><span>${esc(l)}</span></div>`).join('')}</div>` +
-    traffic + own + (rows ? `<h3>Inside</h3><div class="rows">${rows}</div>` : '');
+    traffic + own + arrangedHtml(reg, arranged, R) + (rows ? `<h3>Inside</h3><div class="rows">${rows}</div>` : '');
 }
 
 function groupText(Q) {
