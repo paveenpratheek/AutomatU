@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "The map view front end: plain browser modules. Its layout test runs with: node --test web/layout.test.js"
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layout, hexDistance } from '../web/layout.js';
+import { layout, hexDistance } from './layout.js';
 
 const places = [
   ...Array.from({ length: 12 }, (_, i) => ({ region: 'a' + i, sections: ['A'] })),

@@ -145,7 +145,7 @@ function applyHidden() {
 async function loadMap(repo) {
   const r = await fetch('/api/map?repo=' + encodeURIComponent(repo));
   const j = await r.json();
-  if (!r.ok) { $('meta').textContent = j.error; return; }
+  if (!r.ok) { $('meta').textContent = j.error || j.detail; return; }
   state.map = j;
   state.hidden = new Set();
   const sections = j.run.sections.length ? j.run.sections : [...new Set(j.places.flatMap((p) => p.sections))];
