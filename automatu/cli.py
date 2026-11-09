@@ -17,6 +17,7 @@
                                   the boxes the code has moved past, and work in progress
   automatu notices close ID --by NAME (--done | --still-right | --ignored) "what, or why"
                                   close a notice, saying what was done
+  automatu mcp                    the MCP server over stdio, for agents on any platform (read-only)
 """
 from __future__ import annotations
 
@@ -147,6 +148,12 @@ def _notices(a) -> None:
             print(f"  [{x['id']}] {x['name']} > {x['box'].split(' > ')[-1]}  {x['closed_how']} by {x['closed_by']}: {x['closed_note']}")
 
 
+def _mcp(a) -> None:
+    # stdout is the protocol from here on: nothing else may print to it.
+    from .mcp_server import run
+    run()
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="automatu", description="Brings a project's sources together and aligns its code under its plan.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -177,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     n.add_argument("--still-right", dest="still_right", help="why the box's words still hold")
     n.add_argument("--ignored", help="closed because the user asked; say so")
     n.set_defaults(fn=_notices)
+    sub.add_parser("mcp", help="AutomatU's MCP server over stdio, for agents on any platform (read-only)").set_defaults(fn=_mcp)
     a = p.parse_args(argv)
     try:
         migrate()

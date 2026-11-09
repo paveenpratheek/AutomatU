@@ -156,6 +156,89 @@ class Timeline(BaseModel):
     drift: list[Drift]
 
 
+# ------------------------------------------------------------- what an agent can ask (the MCP server, t-5fece0836c)
+
+class StackCommit(BaseModel):
+    sha: str
+    subject: str
+
+
+class StackRegion(BaseModel):
+    """A code region placed under a box on the newest map."""
+    id: str
+    file: str
+    name: str
+    start: int
+    end: int
+    commits: list[StackCommit]
+
+
+class RelatedBox(BaseModel):
+    box: str
+    by: str  # code, link or meaning
+    why: list[str]
+
+
+class Decision(BaseModel):
+    """A thought the box's words or its code carry, as GitX holds it."""
+    id: str
+    kind: str | None
+    outcome: str | None
+    settled_in: str
+    text: str
+
+
+class BoxContext(BaseModel):
+    """Everything AutomatU knows about one box, read where it lives."""
+    canvas: str
+    address: str
+    name: str
+    words: str
+    built_by: list[str]  # the commits named on its [x] lines
+    plans: list[str]  # the repositories whose plan this box is in
+    stack: list[StackRegion]
+    stack_more: int  # regions under it beyond those listed
+    related: list[RelatedBox]
+    decisions: list[Decision]
+    behind: Drift | None
+    note: str
+
+
+class FoundBox(BaseModel):
+    canvas: str
+    address: str
+    name: str
+    score: float
+    words: str
+
+
+class FindAnswer(BaseModel):
+    query: str
+    boxes: list[FoundBox]
+
+
+class SinceWrite(BaseModel):
+    at: str
+    by: str
+    totems: list[str]
+
+
+class SinceRepo(BaseModel):
+    repo: str
+    canvas: str
+    commits: list[TimelineCommit]
+    plan_writes: list[SinceWrite]
+    maps: int
+
+
+class SinceAnswer(BaseModel):
+    """What changed since a moment, so an agent on another platform can catch up."""
+    since: str
+    repos: list[SinceRepo]
+    notices_opened: list[Notice]
+    notices_closed: list[Notice]
+
+
 # ------------------------------------------------------------- calibration.json
 
 class CalibrationResult(Strict):
