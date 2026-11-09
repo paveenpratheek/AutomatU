@@ -23,6 +23,7 @@ def region_net(repo: Repo, region_id: str) -> dict | None:
     if r is None:
         return None
     T = repo.thoughts
+    # A thought counts as current while some code at HEAD still cites it.
     cited_now = {t for x in repo.regions for t in x.cites}
     back: dict[str, list[str]] = {}
     for t in T.values():
