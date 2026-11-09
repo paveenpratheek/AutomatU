@@ -60,8 +60,13 @@ def test_each_box_gets_the_commits_whose_lines_are_under_it_and_bulk_commits_are
     assert {sha: [x.id for x in xs] for sha, xs in got["Y"]} == {"c1": ["a.py::f", "b.py::k"]}, "a commit behind most of the code is no one box's"
 
 
-def item(box, sha, state, at="2026-11-09T10:00:00Z", ticked=None):
-    return {"box": box, "sha": sha, "at": at, "subject": "s " + sha, "state": state, "ticked_by": ticked,
+def sha(short):
+    """A commit hash for a test commit named like c1: c1c1c1c1."""
+    return (short * 4)[:8]
+
+
+def item(box, name, state, at="2026-11-09T10:00:00Z", ticked=None):
+    return {"box": box, "sha": sha(name), "at": at, "subject": "s " + name, "state": state, "ticked_by": ticked and sha(ticked),
             "regions": [{"id": "a.py::f", "file": "a.py", "name": "f", "start": 1, "end": 9}]}
 
 
@@ -71,7 +76,7 @@ def test_one_open_row_per_box_closed_by_an_agent_or_by_its_ticks(store):
     assert merge(R, [item("B1", "c1", "behind"), item("B1", "c2", "behind", "2026-11-09T11:00:00Z"), item("B2", "c3", "progress"),
                      item("B3", "c0", "behind", ticked="c9")]) == {"added": 3, "closed": 0}
     n = notices(R)
-    assert n["count"] == 1 and [x["box"] for x in n["behind"]] == ["B1"] and [c["sha"] for c in n["behind"][0]["commits"]] == ["c1", "c2"]
+    assert n["count"] == 1 and [x["box"] for x in n["behind"]] == ["B1"] and [c["sha"] for c in n["behind"][0]["commits"]] == [sha("c1"), sha("c2")]
     assert [x["box"] for x in n["progress"]] == ["B2"], "work in progress is listed apart and not counted"
     assert merge(R, [item("B1", "c1", "behind")])["added"] == 0, "a commit already on the row is not added twice"
 
@@ -81,7 +86,7 @@ def test_one_open_row_per_box_closed_by_an_agent_or_by_its_ticks(store):
     assert merge(R, [item("B1", "c1", "behind"), item("B1", "c4", "behind", "2026-11-09T12:00:00Z")])["added"] == 1, \
         "a closed row's commits stay closed; a new one opens a new row"
     n = notices(R)
-    assert [c["sha"] for c in n["behind"][0]["commits"]] == ["c4"] and n["closed"][0]["closed_how"] == "still-right"
+    assert [c["sha"] for c in n["behind"][0]["commits"]] == [sha("c4")] and n["closed"][0]["closed_how"] == "still-right"
 
     assert merge(R, [item("B2", "c3", "progress", ticked="c5")]) == {"added": 0, "closed": 1}, "ticked on its box: it closes itself"
     assert notices(R)["closed"][0]["closed_how"] == "ticked" and not notices(R)["progress"]

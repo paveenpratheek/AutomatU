@@ -1,6 +1,8 @@
 """The map view's server, a FastAPI app: the page in web/, and the newest map
 snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e); with the
-watcher on it also makes new maps as the work happens (t-3e56993cc4).
+watcher on it also makes new maps as the work happens (t-3e56993cc4). The
+notices, agents and timeline answers are typed, and their schema is served at
+/api/openapi.json for the page and other agents (t-e7dd1752e3).
 """
 from __future__ import annotations
 
@@ -10,10 +12,11 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
+from .models import AgentsAnswer, NoticesAnswer, Timeline
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="AutomatU map view", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="AutomatU map view", docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
 
 
 @app.get("/api/repos")
@@ -106,7 +109,7 @@ def _bound(repo: str) -> None:
         raise HTTPException(404, "not a repository bound to a canvas")
 
 
-@app.get("/api/timeline")
+@app.get("/api/timeline", response_model=Timeline)
 def timeline_of(repo: str) -> dict:
     """A bound repository in time: its phases, plan versions, commits, thoughts
     and maps, and the boxes whose code moved on while their words did not
@@ -132,7 +135,7 @@ def plan_at_of(repo: str, when: str) -> dict:
         raise HTTPException(503, str(e))
 
 
-@app.get("/api/notices")
+@app.get("/api/notices", response_model=NoticesAnswer)
 def notices_of(repo: str | None = None) -> dict:
     """The boxes the code has moved past, work in progress, and the newest
     closed notices, for the bell (t-026702a111). Closing is an agent's
@@ -141,7 +144,7 @@ def notices_of(repo: str | None = None) -> dict:
     return notices(repo)
 
 
-@app.get("/api/agents")
+@app.get("/api/agents", response_model=AgentsAnswer)
 def agents_of() -> dict:
     """The agents that answer for each repository, for the Agents button (t-268908a2b1)."""
     from .notices import agents

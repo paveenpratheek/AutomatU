@@ -22,6 +22,9 @@ placements, the canvas history and these rows (t-a0575e7e36).
 from __future__ import annotations
 
 from psycopg.types.json import Jsonb
+from pydantic import ValidationError
+
+from .models import NoticeCommit
 
 from .binding import binding_of, repo_key
 from .store import db
@@ -212,18 +215,20 @@ def merge(repo: str, items: list[dict], alias: dict[str, str] | None = None) -> 
                 continue
             if it["ticked_by"]:
                 continue  # built and ticked before AutomatU saw it: nothing to tell
+            # Checked before anything is written: a bad entry is refused, its field named (t-e7dd1752e3).
+            entry = _checked(box, [{k: it[k] for k in ("sha", "at", "subject", "state", "regions")} | {"ticked_by": None}])[0]
             row = open_row.get(box)
             if not row:
                 nid = conn.execute("INSERT INTO notice (repo, box) VALUES (%s, %s) RETURNING id", (repo, box)).fetchone()[0]
                 row = open_row[box] = [nid, [], False]
-            row[1].append({k: it[k] for k in ("sha", "at", "subject", "state", "regions")} | {"ticked_by": None})
+            row[1].append(entry)
             row[2] = True
             known.add((box, it["sha"]))
             added += 1
         for box, (nid, cs, dirty) in open_row.items():
             if not dirty:
                 continue
-            cs.sort(key=lambda c: c["at"])
+            cs = _checked(box, sorted(cs, key=lambda c: c["at"]))
             if cs and all(c["state"] == "ticked" for c in cs):
                 conn.execute("UPDATE notice SET commits = %s, updated_at = now(), status = 'closed', closed_at = now(), closed_by = 'AutomatU', "
                              "closed_how = 'ticked', closed_note = %s WHERE id = %s",
@@ -232,6 +237,19 @@ def merge(repo: str, items: list[dict], alias: dict[str, str] | None = None) -> 
             else:
                 conn.execute("UPDATE notice SET commits = %s, updated_at = now() WHERE id = %s", (Jsonb(cs), nid))
     return {"added": added, "closed": closed}
+
+
+def _checked(box: str, commits: list[dict]) -> list[dict]:
+    """A notice's commits as the model says they must be, or a ValueError
+    naming the box, the entry and the field."""
+    out = []
+    for c in commits:
+        try:
+            out.append(NoticeCommit.model_validate(c).model_dump())
+        except ValidationError as e:
+            where = "; ".join(f"{'.'.join(str(x) for x in err['loc']) or 'the entry'}: {err['msg']}" for err in e.errors())
+            raise ValueError(f"a notice for {box} was refused - commit {c.get('sha', '?') if isinstance(c, dict) else '?'}: {where}") from None
+    return out
 
 
 def refresh(repo_dir: str) -> dict:

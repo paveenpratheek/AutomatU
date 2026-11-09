@@ -22,6 +22,7 @@ from datetime import date
 from .align import Numbers, decide, rank_sections
 from .embed import MODEL
 from .maps import CALIBRATION
+from .models import Calibration
 from .profile import region_vectors, section_vectors
 from .sources.canvas import read_canvas
 from .sources.gitx import Repo, read_repo
@@ -148,6 +149,8 @@ def run(write: bool = False, log=print) -> dict:
         "selfTest": {"minPrecision": 0.9, "minCoverage": math.ceil(best["coverage"] * 100) / 100,
                      "truth": "the sections of the commits holding at least 20% of a region's lines, from the answer key kept outside the repository"},
     }
+    # Checked before it is written, so the file that is loaded later always passes (t-e7dd1752e3).
+    result = Calibration.model_validate(result).model_dump()
     if write:
         CALIBRATION.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         log("\nwritten " + str(CALIBRATION))

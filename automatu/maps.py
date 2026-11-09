@@ -8,9 +8,12 @@ import json
 import subprocess
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .align import Numbers, place_regions
 from .binding import binding_of, plan_sections, remember_totem_id, repo_key
 from .embed import MODEL, text_hash
+from .models import Calibration
 from .profile import region_vectors, section_vectors
 from .sources.canvas import Canvas, Section, read_canvas_script, sections
 from .sources.gitx import read_repo
@@ -52,10 +55,21 @@ def calibrated() -> Numbers:
     """The calibrated numbers, or an error saying calibration has not been run
     (t-1cf7bb7eb7)."""
     try:
-        c = json.loads(CALIBRATION.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        text = CALIBRATION.read_text(encoding="utf-8")
+    except OSError:
         raise RuntimeError("no calibration.json yet: run the calibration before placing code")
-    return Numbers(min_score=c["minScore"], min_margin=c["minMargin"], overlap=c.get("overlap", 0), max_shared=c.get("maxShared", 3))
+    c = load_calibration(text)
+    return Numbers(min_score=c.minScore, min_margin=c.minMargin, overlap=c.overlap, max_shared=c.maxShared)
+
+
+def load_calibration(text: str) -> Calibration:
+    """calibration.json checked as it is loaded: a missing, misspelled or
+    out-of-range field stops here, named (t-e7dd1752e3)."""
+    try:
+        return Calibration.model_validate_json(text)
+    except ValidationError as e:
+        where = "; ".join(f"{'.'.join(str(x) for x in err['loc']) or 'the file'}: {err['msg']}" for err in e.errors())
+        raise RuntimeError("calibration.json is not as it must be - " + where) from None
 
 
 def make_map(dir: str, numbers: Numbers | None = None) -> dict:
