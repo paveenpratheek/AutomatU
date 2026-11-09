@@ -20,11 +20,14 @@ def test_the_watcher_maps_what_changed_and_survives_a_failure(monkeypatch):
     monkeypatch.setattr(watch, "all_bindings", lambda: bindings)
     monkeypatch.setattr(watch, "needs_map", needs_map)
     monkeypatch.setattr(watch, "make_map", make_map)
+    noticed = []
+    monkeypatch.setattr(watch, "refresh", lambda repo: noticed.append(repo) or {"added": 0, "closed": 0})
     w = watch.Watcher(log=logs.append)
 
     assert [m["repo"] for m in w.check_once()] == ["A"]
     assert made == ["A"], "B had no change, C failed"
     assert sum("could not check C" in l for l in logs) == 1
+    assert noticed == ["A", "B"], "notices after a new map, and once for a repository already mapped"
 
     reasons["A"] = None
     assert w.check_once() == []

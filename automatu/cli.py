@@ -10,6 +10,13 @@
   automatu calibrate [--write]    set the placement numbers on the Harness canvas
   automatu serve [--port 7790]    the map view on 127.0.0.1, making a new map on
                                   every commit or plan change (--no-watch to only show)
+  automatu agent register|leave <repo> --agent NAME
+                                  an agent answers for a repository, or steps down
+  automatu agents                 who answers for which repository
+  automatu notices [<repo>] [--refresh]
+                                  the boxes the code has moved past, and work in progress
+  automatu notices close ID --by NAME (--done | --still-right | --ignored) "what, or why"
+                                  close a notice, saying what was done
 """
 from __future__ import annotations
 
@@ -64,6 +71,9 @@ def _align(a) -> None:
     shared = sum(1 for p in m["places"] if len(p.sections) > 1)
     if shared:
         print(f"  {shared} of the placed regions sit in more than one section")
+    from .notices import refresh
+    n = refresh(m["repo"])
+    print(f"notices: {n['added']} commits added, {n['closed']} closed by a tick - automatu notices to read them")
 
 
 def _calibrate(a) -> None:
@@ -75,6 +85,66 @@ def _serve(a) -> None:
     from .serve import serve
     print(f"map view on http://127.0.0.1:{a.port}" + ("" if a.no_watch else ", making a new map on every commit or plan change") + "  (Ctrl+C to stop)")
     serve(port=a.port, watch=not a.no_watch)
+
+
+def _agent(a) -> None:
+    from .notices import leave, register
+    if a.action == "register":
+        r = register(a.agent, a.repo, a.note or "")
+        print(f"{r['agent']} answers for {r['repo']} since {r['since']}" if r["changed"] else f"{r['agent']} already answers for {r['repo']}, since {r['since']}")
+    else:
+        r = leave(a.agent, a.repo, a.note or "")
+        print(f"{r['agent']} no longer answers for {r['repo']}")
+
+
+def _agents(a) -> None:
+    from .notices import agents
+    got = agents()
+    if not got:
+        print("no agent answers for a repository yet: automatu agent register <repo> --agent NAME")
+    for g in got:
+        print(g["agent"])
+        for r in g["repos"]:
+            print(f"  {r['name']}  since {r['since']}  {r['behind']} boxes behind, {r['progress']} in progress")
+
+
+def _commit_line(c: dict) -> str:
+    regs = "; ".join(f"{x['file']} {x['name']} {x['start']}-{x['end']}" for x in c["regions"])
+    return f"      {c['sha'][:7]} {c['at'][:16].replace('T', ' ')} UTC  {c['state']}  {c['subject']}\n        {regs}"
+
+
+def _notices(a) -> None:
+    from .binding import repo_key
+    from .notices import close_notice, notices, refresh
+    if a.target and a.target[0] == "close":
+        if len(a.target) < 2 or not a.target[1].isdigit():
+            raise ValueError('automatu notices close ID --by NAME (--done | --still-right | --ignored) "what, or why"')
+        how = [k for k, v in (("done", a.done), ("still-right", a.still_right), ("ignored", a.ignored)) if v is not None]
+        if len(how) != 1:
+            raise ValueError("say one of --done, --still-right or --ignored, with what was done or why")
+        note = {"done": a.done, "still-right": a.still_right, "ignored": a.ignored}[how[0]]
+        n = close_notice(int(a.target[1]), how[0], note, a.by or "")
+        print(f"notice {n['id']} on {n['box']} closed as {n['closed_how']} by {n['closed_by']}: {n['closed_note']}")
+        return
+    repo = repo_key(a.target[0]) if a.target else None
+    if a.refresh:
+        from .binding import all_bindings
+        for b in all_bindings():
+            if repo is None or b["repo"] == repo:
+                r = refresh(b["repo"])
+                print(f"worked out again for {b['repo']}: {r['added']} commits added, {r['closed']} notices closed by a tick")
+    n = notices(repo, closed=5)
+    print(f"{n['count']} boxes behind their code")
+    for title, rows in (("behind", n["behind"]), ("in progress", n["progress"])):
+        for x in rows:
+            print(f"  [{x['id']}] {x['name']} > {x['box'].split(' > ')[-1]}  ({title}: {x['behind']} behind, {x['progress']} in progress)")
+            for c in x["commits"]:
+                if c["state"] != "ticked":
+                    print(_commit_line(c))
+    if n["closed"]:
+        print("closed lately:")
+        for x in n["closed"]:
+            print(f"  [{x['id']}] {x['name']} > {x['box'].split(' > ')[-1]}  {x['closed_how']} by {x['closed_by']}: {x['closed_note']}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -93,6 +163,20 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--port", type=int, default=7790)
     v.add_argument("--no-watch", action="store_true", help="only show maps, do not make new ones")
     v.set_defaults(fn=_serve)
+    g = sub.add_parser("agent", help="an agent answers for a repository, or steps down")
+    g.add_argument("action", choices=("register", "leave")); g.add_argument("repo")
+    g.add_argument("--agent", required=True, help="the agent's name, as it writes on the canvas")
+    g.add_argument("--note", help="why, kept in the log")
+    g.set_defaults(fn=_agent)
+    sub.add_parser("agents", help="who answers for which repository").set_defaults(fn=_agents)
+    n = sub.add_parser("notices", help="the boxes the code has moved past; close ID to close one")
+    n.add_argument("target", nargs="*", help="a repository, or: close ID")
+    n.add_argument("--refresh", action="store_true", help="work the notices out again first")
+    n.add_argument("--by", help="who closes it")
+    n.add_argument("--done", help="what was changed")
+    n.add_argument("--still-right", dest="still_right", help="why the box's words still hold")
+    n.add_argument("--ignored", help="closed because the user asked; say so")
+    n.set_defaults(fn=_notices)
     a = p.parse_args(argv)
     try:
         migrate()

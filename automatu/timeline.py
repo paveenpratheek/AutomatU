@@ -10,9 +10,10 @@ did not.
   boxes      followed from version to version by name, and a box that
              vanished while another appeared is the same box renamed when
              most of its lines carried over - as git follows lines, not names
-  drift      a box whose code was changed, after its words last changed, by
-             commits made for another box - the box holding most of the code
-             that commit still owns (t-e8ed35d743)
+  drift      a built box the code has moved past, as its open notice holds
+             it (notices.py, t-5f4103c65a): it replaces counting only the
+             commits made for another box, which had to guess each commit's
+             box (t-e8ed35d743)
 
 Clocks (t-1660f9a7e6): commits by committer time, thoughts by when GitX
 recorded them, plan versions by NoteX's write, maps by when they were made;
@@ -25,11 +26,9 @@ import threading
 from datetime import datetime, timezone
 
 from .binding import all_bindings, binding_history
-from .maps import latest_map
 from .sources.canvas import canvas_history, read_canvas_at, sections
 from .store import db
 
-BULK = 0.30          # a commit behind more than this share of the regions is no one box's work
 RENAME_OVERLAP = 0.5  # a vanished and a new box are one box renamed when this share of lines carried over
 
 _scripts: dict[tuple[str, str], str] = {}
@@ -160,7 +159,7 @@ def timeline(repo: str) -> dict:
         ph["settled"] = sum(1 for t in r.thoughts.values() if t.created and inside(utc(t.created)) and t.resulted)
         ph["maps"] = sum(1 for m in maps if inside(m["at"]))
     return {"repo": repo, "canvas": b["canvas"], "now": utc(datetime.now(timezone.utc)), "phases": phases,
-            "commits": commits, "thoughts": thoughts, "maps": maps, "drift": drift(repo, b, phases, r)}
+            "commits": commits, "thoughts": thoughts, "maps": maps, "drift": drift(repo)}
 
 
 def plan_at(repo: str, when: str) -> dict:
@@ -195,58 +194,10 @@ def _just_before(t: str) -> str:
     return utc(datetime.fromtimestamp(d.timestamp() - 0.001, timezone.utc))
 
 
-def drift(repo: str, binding: dict, phases: list[dict], r) -> list[dict]:
-    """Plan boxes whose code was changed by commits made for another box after
-    the box's own words last changed - code changed, plan not (t-e8ed35d743)."""
-    m = latest_map(repo)
-    if not m or not phases:
-        return []
-    ph = phases[-1]
-    versions = _versions(ph["canvas"], ph)
-    # When each box's words last changed, the box followed through renames.
-    last_changed: dict[str, str] = {}
-    prev: dict[str, str] | None = None
-    for v in versions:
-        boxes = _plan_boxes(_script_at(ph["canvas"], v)["script"], ph["totem"])
-        if prev is None:
-            for a in boxes:
-                last_changed[a] = v
-        else:
-            ch = follow(prev, boxes)
-            for old, new in ch["renamed"]:
-                last_changed[new] = last_changed.pop(old, v)
-            for a in ch["added"] + ch["reworded"]:
-                last_changed[a] = v
-        prev = boxes
-    # The box each commit was made for: where most of the code it still owns is placed.
-    under: dict[str, str] = {}
-    for p in m["places"]:
-        if p["section"]:
-            under[p["region"]] = p["section"]
-    regions = {x.id: x for x in r.regions}
-    owns: dict[str, dict[str, int]] = {}
-    count: dict[str, int] = {}
-    for rid, box in under.items():
-        x = regions.get(rid)
-        for sha, n in (x.commits if x else []):
-            owns.setdefault(sha, {}).setdefault(box, 0)
-            owns[sha][box] += n
-            count[sha] = count.get(sha, 0) + 1
-    bulk = {sha for sha, n in count.items() if n > BULK * max(1, len(under))}
-    made_for = {sha: max(bx.items(), key=lambda kv: kv[1])[0] for sha, bx in owns.items()}
-    out = []
-    for box, since in last_changed.items():
-        mine = [rid for rid, b in under.items() if b == box]
-        seen, why = set(), []
-        for rid in mine:
-            x = regions.get(rid)
-            for sha, _ in (x.commits if x else []):
-                c = r.commits.get(sha)
-                if not c or sha in seen or sha in bulk or not c.at or utc(c.at) <= since:
-                    continue
-                seen.add(sha)
-                if made_for.get(sha) and made_for[sha] != box:
-                    why.append({"sha": sha[:7], "at": utc(c.at), "subject": c.subject, "made_for": made_for[sha]})
-        if why:
-            out.append({"box": box, "words_changed": since, "commits": sorted(why, key=lambda w: w["at"])})
-    return out
+def drift(repo: str) -> list[dict]:
+    """The boxes the code has moved past, and those with work in progress, as
+    their open notices hold them (t-5f4103c65a, t-b620bd3f41)."""
+    from .notices import notices
+    n = notices(repo, closed=0)
+    return [{"id": x["id"], "box": x["box"], "behind": x["behind"], "progress": x["progress"],
+             "commits": [c for c in x["commits"] if c["state"] != "ticked"]} for x in n["behind"] + n["progress"]]

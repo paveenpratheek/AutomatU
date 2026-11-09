@@ -132,6 +132,22 @@ def plan_at_of(repo: str, when: str) -> dict:
         raise HTTPException(503, str(e))
 
 
+@app.get("/api/notices")
+def notices_of(repo: str | None = None) -> dict:
+    """The boxes the code has moved past, work in progress, and the newest
+    closed notices, for the bell (t-026702a111). Closing is an agent's
+    command, never this API (t-9b8317f00e)."""
+    from .notices import notices
+    return notices(repo)
+
+
+@app.get("/api/agents")
+def agents_of() -> dict:
+    """The agents that answer for each repository, for the Agents button (t-268908a2b1)."""
+    from .notices import agents
+    return {"agents": agents()}
+
+
 @app.middleware("http")
 async def no_cache(request, call_next):
     res = await call_next(request)

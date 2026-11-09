@@ -16,6 +16,7 @@ import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js
 import { addressOf, indexRelations, relationLayout } from './relate.js';
 import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
 import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore, hexChanges, popDelay } from './timeline.js';
+import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -45,6 +46,7 @@ export const S = {
   m: null, failed: '', layouts: {}, memo: {}, rel: {},
   tl: {}, tPhase: null, tRun: null, past: {}, tMoment: null,
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
+  notices: null, agents: null, drop: null, noticesFailed: '',
 };
 
 function stageSize() { const r = $('stage').getBoundingClientRect(); return { w: Math.max(320, r.width), h: Math.max(320, r.height) }; }
@@ -730,15 +732,16 @@ function phasePanel(cv) {
     `<h3>Maps</h3><div class="rows">${maps.map((m) => `<button type="button" class="row" data-tmap="${m.id}"><span class="nm">Map ${m.id}</span><span class="mt">${esc(ist(m.at, false))} · ${m.placed} of ${m.regions} placed</span></button>`).join('') || '<div class="row plain"><span class="nm muted">None</span></div>'}</div>`;
 }
 
-/* Boxes whose code moved on while their words did not (t-e8ed35d743). */
+/* A box the code has moved past, or with work in progress, as its notice
+   holds it (t-5f4103c65a, t-b620bd3f41). */
 function driftHtml(boxAddress) {
   const T = S.tl[S.repo];
   if (!T || !T.drift || S.tRun) return '';
   const list = T.drift.filter((d) => !boxAddress || d.box === boxAddress);
   if (!list.length) return '';
-  return `<h3>Code changed, plan didn't</h3><div class="why">` + list.map((d) => `<div><b>${esc(short(d.box))}</b> <span class="dis">words last changed ${esc(ist(d.words_changed))}</span>` +
-    d.commits.map((c) => `<div class="npcommit"><span class="sha">${esc(c.sha)}</span> <span class="muted">${esc(ist(c.at, false))} · made for ${esc(short(c.made_for))}</span><br>${esc(c.subject)}</div>`).join('') + `</div>`).join('') +
-    `</div><p class="muted">Its code was changed by commits made for another box after its words last changed: the box may need updating.</p>`;
+  return `<h3>The code moved past the plan</h3><div class="why">` + list.map((d) => `<div><b>${esc(short(d.box))}</b> <span class="dis">notice ${d.id}${d.behind ? '' : ' · work in progress'}</span>` +
+    d.commits.map((c) => `<div class="npcommit${c.state === 'progress' ? ' muted' : ''}"><span class="sha">${esc(c.sha.slice(0, 7))}</span> <span class="muted">${esc(ist(c.at, false))} · ${c.state === 'progress' ? 'in progress' : 'behind'}</span><br>${esc(c.subject)}</div>`).join('') + `</div>`).join('') +
+    `</div><p class="muted">Its code changed after the box was built and its words did not: the box may need updating. Ask an agent to check it and close the notice.</p>`;
 }
 
 /* ------------------------------------------------------------ a region's thoughts */
@@ -947,6 +950,65 @@ function renderChrome() {
   }).join('') : '';
 }
 
+/* ------------------------------------------------------------ the bell and the agents (box 13) */
+
+function loadNotices() {
+  Promise.all([getJson('/api/notices'), getJson('/api/agents')])
+    .then(([n, a]) => { S.notices = n; S.agents = a.agents; S.noticesFailed = ''; })
+    .catch((e) => { S.noticesFailed = e.message; })
+    .then(renderTop);
+}
+
+function renderTop() {
+  const N = S.notices, count = N ? N.count : 0, b = $('bellcount'), bell = $('bellbtn');
+  b.hidden = !count; b.textContent = count > 99 ? '99+' : String(count);
+  bell.classList.toggle('ring', count > 0);
+  bell.setAttribute('aria-label', count ? `${count} box${count === 1 ? '' : 'es'} the code has moved past` : 'Notices: no box is behind its code');
+  for (const [id, k] of [['bellbtn', 'bell'], ['agentsbtn', 'agents']]) { $(id).setAttribute('aria-expanded', String(S.drop === k)); $(id).classList.toggle('on', S.drop === k); }
+  const D = $('drop');
+  D.hidden = !S.drop;
+  if (!S.drop) return;
+  const html = S.drop === 'bell' ? bellHtml() : agentsHtml();
+  if (D.dataset.html !== html) { D.innerHTML = html; D.dataset.html = html; }
+}
+
+function noticeHtml(n, muted) {
+  const regs = regionsOf(n), cs = liveCommits(n);
+  return `<div class="nt${muted ? ' muted' : ''}"><div class="nth"><b>${esc(short(n.box))}</b><span class="mt">${esc(n.name)} · notice ${n.id}</span></div>` +
+    `<div class="mt">${esc(sinceLine(n, ist))}${muted ? ' · in progress: the box was reworded for this work' : ''}</div>` +
+    `<div class="ntr">${regs.map((r) => `<button type="button" class="row" data-nreg="${esc(r.id)}" data-nrepo="${esc(n.repo)}" title="Open it on the Code map"><span class="nm">${esc(regionLabel(r))}</span><span class="mt">${r.commits > 1 ? r.commits + ' commits' : ''}</span></button>`).join('')}</div>` +
+    `<div class="ntc">${cs.map((c) => `<div><span class="sha">${esc(c.sha.slice(0, 7))}</span> <span class="muted">${esc(ist(c.at))}</span> ${esc(c.subject)}</div>`).join('')}</div></div>`;
+}
+
+function bellHtml() {
+  const N = S.notices;
+  if (!N) return `<p class="muted">${S.noticesFailed ? 'Could not read the notices: ' + esc(S.noticesFailed) : 'Reading the notices…'}</p>`;
+  return `<h3>Boxes the code has moved past</h3>` +
+    (N.behind.length ? N.behind.map((n) => noticeHtml(n, false)).join('') : '<p class="muted">None: every built box still matches its code.</p>') +
+    (N.progress.length ? `<h3>Work in progress</h3>` + N.progress.map((n) => noticeHtml(n, true)).join('') : '') +
+    (N.closed.length ? `<h3>Closed lately</h3>` + N.closed.map((n) => `<div class="nt closed"><div class="nth"><b>${esc(short(n.box))}</b><span class="mt">${esc(n.name)} · notice ${n.id} · ${esc(ist(n.closed_at))}</span></div><div class="mt">${esc(closedLine(n))}</div></div>`).join('') : '') +
+    `<p class="muted foot">Ask an agent to check a notice. It closes it with<br><code>automatu notices close ID --by NAME --done | --still-right | --ignored "…"</code></p>`;
+}
+
+function agentsHtml() {
+  const A = S.agents;
+  if (!A) return `<p class="muted">${S.noticesFailed ? 'Could not read the agents: ' + esc(S.noticesFailed) : 'Reading the agents…'}</p>`;
+  return `<h3>Agents and what they answer for</h3>` + (A.length ? A.map((g) => `<div class="nt"><div class="nth"><b>${esc(g.agent)}</b></div>` +
+    g.repos.map((r) => `<div class="ag"><span class="nm">${esc(r.name)}</span><span class="mt">since ${esc(ist(r.since))} · ${r.behind ? `<b class="hot">${r.behind} behind</b>` : 'none behind'}${r.progress ? ` · ${r.progress} in progress` : ''}</span></div>`).join('') + `</div>`).join('')
+    : '<p class="muted">No agent answers for a repository yet.</p>') +
+    `<p class="muted foot">An agent registers with<br><code>automatu agent register REPO --agent NAME</code></p>`;
+}
+
+/* A region named on a notice, opened on the Code map. */
+function openNoticeRegion(repo, rid) {
+  S.drop = null; renderTop();
+  S.tab = 'code'; S.tRun = null; S.tPhase = null; S.tMoment = null; S.net = null;
+  if (S.repo !== repo) { S.repo = repo; S.cview = null; try { localStorage.setItem('automatu.repo', repo); } catch (_) {} }
+  S.pendingRegion = rid; S.pendingNet = false;
+  loadCode();
+  render();
+}
+
 export function render() {
   renderChrome();
   $('panel').hidden = S.tab === 'canvas' || (S.tab === 'code' && !!S.net);
@@ -1058,6 +1120,11 @@ function closePic() { const lb = $('lightbox'); if (lb) { lb.remove(); return tr
 
 document.addEventListener('click', (e) => {
   if (e.target.closest('#lightbox')) return closePic();
+  const dropBtn = e.target.closest('[data-drop]');
+  if (dropBtn) { S.drop = S.drop === dropBtn.dataset.drop ? null : dropBtn.dataset.drop; if (S.drop) loadNotices(); return renderTop(); }
+  const nreg = e.target.closest('[data-nreg]');
+  if (nreg) return openNoticeRegion(nreg.dataset.nrepo, nreg.dataset.nreg);
+  if (S.drop && !e.target.closest('#drop')) { S.drop = null; renderTop(); }
   const pic = e.target.closest('[data-pic]');
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
   const t = e.target.closest('button, polygon, [data-tver], [data-tmap]');
@@ -1135,6 +1202,7 @@ document.addEventListener('pointermove', (e) => {
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (closePic()) return;
+  if (S.drop) { const k = S.drop; S.drop = null; renderTop(); $(k === 'bell' ? 'bellbtn' : 'agentsbtn').focus(); return; }
   if (S.tab === 'code' && S.net) { S.net = null; S.netSel = null; render(); return; }
   if (S.tab === 'code' && S.cr) { S.cr = null; render(); return; }
   if (S.tab === 'code' && S.tMoment) { S.tMoment = null; render(); return; }
@@ -1212,7 +1280,8 @@ async function start() {
   } catch (e) { S.failed = 'Could not load the canvases: ' + e.message; }
   render();
   if (S.repo) loadCode();
-  setInterval(() => follow().catch(() => {}), 4000);
+  loadNotices();
+  setInterval(() => { follow().catch(() => {}); loadNotices(); }, 4000);
 }
 
 /* The live map (t-5b98c27370): the server makes a new map on every commit or

@@ -27,6 +27,7 @@ class Section:
     name: str
     words: str
     cites: list[str] = field(default_factory=list)
+    ticks: list[str] = field(default_factory=list)  # commits named on its "[x]" lines: the box is built (t-5f4103c65a)
 
 
 @dataclass
@@ -148,6 +149,20 @@ def without_ids(text: str) -> tuple[str, list[str]]:
     return words, cites
 
 
+def ticks_of(text: str) -> list[str]:
+    """The commits named on a box's ticked lines ("- [x] ... (b439557)"): what
+    says the box is built, and with which commit (t-5f4103c65a)."""
+    out: list[str] = []
+    for line in text.splitlines():
+        if "[x]" in line.lower():
+            line = _THOUGHT_ID.sub("", line)
+            out += _COMMIT_ID.findall(line)
+            # A short hash can be all digits (2445954); in a tick's brackets it is still a commit.
+            for inside in re.findall(r"\(([^()]*)\)", line):
+                out += re.findall(r"\b\d{7,12}\b", inside)
+    return list(dict.fromkeys(out))
+
+
 def _clean(s: str) -> str:
     s = "\n".join(l.strip() for l in s.replace("\r\n", "\n").split("\n"))
     return re.sub(r"\n{3,}", "\n\n", s).strip()
@@ -178,8 +193,9 @@ def sections(script: str) -> list[Section]:
                     elif k.tag in ("Row", "Column"):
                         # Layout only: what a row inside a box holds is still the box's own.
                         own += [_note_text(g) for g in k.children if g.tag in ("Note", "Text")]
-                words, cites = without_ids("\n".join(x for x in own if x))
-                out.append(Section(address=" > ".join(trail + [name]), totem=totem, name=name, words=words, cites=cites))
+                text = "\n".join(x for x in own if x)
+                words, cites = without_ids(text)
+                out.append(Section(address=" > ".join(trail + [name]), totem=totem, name=name, words=words, cites=cites, ticks=ticks_of(text)))
                 walk(c, trail + [name], totem)
             else:
                 walk(c, trail, totem)  # Canvas, Row, Column: layout, not a place
