@@ -119,6 +119,14 @@ button { font: inherit; color: inherit; }
 .tlm.mv { width: 9px; height: 9px; top: 1px; background: #E39B0B; transform: translateX(-50%) rotate(45deg); cursor: pointer; }
 .tlm.mm { width: 8px; height: 8px; top: 2px; background: #FFFFFF; border: 1.5px solid #141413; border-radius: 2px; cursor: pointer; box-sizing: border-box; }
 .tlm.mv:hover, .tlm.mm:hover { outline: 2px solid rgba(20, 20, 19, 0.35); }
+.tl { touch-action: none; user-select: none; cursor: ew-resize; }
+.tltrack { position: absolute; left: 12px; right: 12px; top: 0; bottom: 0; pointer-events: none; }
+.tlhandle { position: absolute; top: 2px; bottom: 2px; width: 22px; margin-left: -11px; pointer-events: auto; cursor: grab; z-index: 2; transition: left 0.18s ease-out; will-change: left; }
+.tlhandle::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: #D6336C; border-radius: 1px; }
+.tlhandle .knob { position: absolute; left: 4px; top: -6px; width: 14px; height: 14px; border-radius: 50%; background: #D6336C; border: 2px solid #FFFFFF; box-shadow: 0 1px 4px rgba(20, 20, 19, 0.3); box-sizing: border-box; }
+.tlhandle .tip { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); white-space: nowrap; background: #141413; color: #FFFFFF; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 6px; opacity: 0; transition: opacity 0.12s; pointer-events: none; }
+.tlhandle:hover .tip, .tlhandle.dragging .tip { opacity: 1; }
+.tlhandle.dragging { transition: none; cursor: grabbing; }
 .tlnow { position: absolute; top: 4px; bottom: 4px; width: 2px; background: #D6336C; transform: translateX(-50%); margin-left: 12px; pointer-events: none; }
 .tlkey { position: absolute; right: 12px; top: 62px; display: none; }
 .tl:hover .tlkey, .tlkey:has(.tlback) { display: flex; }

@@ -15,7 +15,7 @@ import { buildCodeMap, hexD, regionAt } from './codelayout.js';
 import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js';
 import { addressOf, indexRelations, relationLayout } from './relate.js';
 import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
-import { scaleOf, phaseAt, ist, lastMapIn } from './timeline.js';
+import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore } from './timeline.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -336,16 +336,60 @@ const mapOf = (cv) => cv._map || (cv._map = buildCodeMap(cv));
    timeline (t-25f10ce5fd). */
 function curCode() {
   if (!S.tRun) return S.code[S.repo];
-  const key = S.repo + '#' + S.tRun;
+  const v = ensurePast(S.tRun);
+  if (v && !v.loading && !v.failed) return v;
+  if (v && v.failed) return null;
+  /* While it loads, the nearest map before it that is in stands in, so the
+     map never flashes empty while scrubbing (t-a6d44609ab). */
+  const T = S.tl[S.repo];
+  if (T && T.maps) {
+    const want = T.maps.findIndex((m) => m.id === S.tRun);
+    for (let i = want - 1; i >= 0; i--) { const p = S.past[S.repo + '#' + T.maps[i].id]; if (p && !p.loading && !p.failed) return p; }
+  }
+  return S.lastCv && S.lastCv.run.repo === S.repo ? S.lastCv : null;
+}
+
+/* Every earlier map is fetched in the background once the timeline is in, two
+   at a time, and laid out while the page is idle - an earlier map takes ~0.4 s
+   to arrive, longer than the scrubber rests on one (t-a6d44609ab). */
+const waiting = {};
+function prefetchPast(T) {
+  const latest = T.maps[T.maps.length - 1];
+  const queue = T.maps.filter((m) => !latest || m.id !== latest.id).map((m) => m.id).reverse();
+  const idle = window.requestIdleCallback || ((f) => setTimeout(f, 30));
+  const next = () => {
+    const run = queue.shift();
+    if (run == null) return;
+    const key = S.repo + '#' + run, v = ensurePast(run);
+    const done = () => { const p = S.past[key]; if (p && p.run) idle(() => mapOf(p)); next(); };
+    if (v.loading) (waiting[key] = waiting[key] || []).push(done); else done();
+  };
+  next(); next();
+}
+
+/* An earlier map, asked for once; the page redraws when it arrives if it is
+   still the one wanted. */
+function ensurePast(run) {
+  const key = S.repo + '#' + run;
   if (!S.past[key]) {
     S.past[key] = { loading: true };
-    getJson('/api/code?repo=' + encodeURIComponent(S.repo) + '&run=' + S.tRun)
+    getJson('/api/code?repo=' + encodeURIComponent(S.repo) + '&run=' + run)
       .then((j) => { S.past[key] = j; })
       .catch((e) => { S.past[key] = { failed: e.message }; })
-      .then(() => { S.cview = null; if (S.tab === 'code') render(); });
+      .then(() => {
+        const w = waiting[key]; delete waiting[key]; if (w) w.forEach((f) => f());
+        if (S.tab === 'code' && S.tRun === run) scheduleRender();
+      });
   }
-  const v = S.past[key];
-  return v.loading || v.failed ? null : v;
+  return S.past[key];
+}
+
+/* One redraw per frame at most. */
+let renderQueued = false;
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); });
 }
 
 /* A repository's timeline, read once and again whenever a new map arrives. */
@@ -356,6 +400,7 @@ function loadTimeline(force) {
   getJson('/api/timeline?repo=' + encodeURIComponent(repo))
     .then((j) => {
       S.tl[repo] = j;
+      if (repo === S.repo) prefetchPast(j);
       /* ?phase=N or ?moment=<time> from a link, once the timeline is in. */
       if (S.pendingPhase != null && j.phases[S.pendingPhase - 1]) {
         const p = j.phases[S.pendingPhase - 1], m = lastMapIn(j.maps, p.start, p.end), latest = j.maps[j.maps.length - 1];
@@ -398,6 +443,7 @@ function renderCode() {
     stage.innerHTML = `<div class="status">${esc(S.codeFailed || (pf && pf.failed) || (S.tRun ? 'Reading the earlier map…' : 'Reading the code map…'))}</div>${timelineHtml()}<div class="repochips">${chips}</div>`;
     $('panel').innerHTML = ''; return;
   }
+  S.lastCv = cv;
   const map = mapOf(cv), Q = search();
   if (!S.cview || S.cview.repo !== S.repo) S.cview = { repo: S.repo, ...fitView(map) };
   const V = S.cview, lod = lodOf(V.z);
@@ -498,17 +544,102 @@ function timelineHtml() {
   }).join('');
   const marks = (list, cls, attr, title) => list.map((x) => `<i class="tlm ${cls}" ${attr ? attr(x) : ''} title="${esc(title(x))}" style="left:${pc(x.at)}"></i>`).join('');
   const versions = T.phases.flatMap((p) => p.versions.map((v) => ({ at: v, totem: p.totem })));
+  /* The scrubber (t-eef843abdf): where it rests - the dragged place, the
+     moment picked, the earlier map shown, or now. */
   const cur = S.tRun ? T.maps.find((m) => m.id === S.tRun) : null;
+  const restAt = S.tDrag ? null : S.tMoment ? S.tMoment.when : cur ? cur.at : T.now;
+  const hf = S.tDrag ? S.tDrag.f : at(restAt);
+  const tip = S.tDrag ? scrubTip(T, S.tDrag) : (S.tMoment ? 'Plan at ' + ist(S.tMoment.when) : cur ? 'Map ' + cur.id + ' · ' + ist(cur.at) : 'Now');
   return `<div class="tl" data-tl="1">` +
     `<div class="tlbands">${bands}</div>` +
     `<div class="tlrow c">${marks(T.commits, 'mc', null, (c) => c.sha + ' ' + ist(c.at) + '\n' + c.subject)}</div>` +
     `<div class="tlrow t">${marks(T.thoughts, 'mt', null, (t) => t.id + ' ' + (t.kind || '') + ' ' + ist(t.at) + '\n' + t.text)}</div>` +
     `<div class="tlrow v">${marks(versions, 'mv', (v) => `data-tver="${esc(v.at)}"`, (v) => 'Plan version ' + ist(v.at) + ' - click for the plan then')}` +
     `${marks(T.maps, 'mm' + '', (m) => `data-tmap="${m.id}"`, (m) => 'Map ' + m.id + ' · ' + ist(m.at) + ' · ' + m.placed + ' of ' + m.regions + ' placed')}</div>` +
-    (cur ? `<i class="tlnow" style="left:${pc(cur.at)}"></i>` : '') +
+    `<div class="tltrack" id="tltrack"><div class="tlhandle${S.tDrag ? ' dragging' : ''}" id="tlhandle" data-tlhandle="1" style="left:${(hf * 100).toFixed(3)}%" title="Drag through time">` +
+    `<span class="knob"></span><span class="tip" id="tltip">${esc(tip)}</span></div></div>` +
     `<div class="tlkey"><span><i class="tlm mv"></i>plan versions</span><span><i class="tlm mm"></i>maps</span><span><i class="tlm mc"></i>commits</span><span><i class="tlm mt"></i>thoughts</span>` +
     (S.tRun || S.tPhase != null ? `<button type="button" class="tlback" data-tnow="1">Back to now</button>` : '') + `</div></div>`;
 }
+
+/* ------------------------------------------------------------ scrubbing the timeline */
+
+function scrubTip(T, D) {
+  const g = D.target, what = !g ? '' : g.kind === 'map' ? ' · map ' + g.id : g.kind === 'version' ? ' · plan version' : ' · now';
+  return ist(timeAt(T.phases, T.now, D.f)) + what;
+}
+
+function scrubFrac(e) {
+  const tr = $('tltrack');
+  if (!tr) return null;
+  const r = tr.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+}
+
+/* What the map and the panel show for a snap point: a map is shown itself, a
+   plan version with the newest map made before it, now with today's map; the
+   maps either side are fetched ahead. */
+function scrubApply(T, g) {
+  const latest = T.maps[T.maps.length - 1];
+  const m = g.kind === 'map' ? T.maps.find((x) => x.id === g.id) : g.kind === 'version' ? mapAtOrBefore(T.maps, g.at) : null;
+  S.tRun = g.kind === 'now' || !m || (latest && m.id === latest.id) ? null : m.id;
+  S.tPhase = g.kind === 'now' ? null : phaseAt(T.phases, g.at);
+  S.tMoment = null; S.cg = null; S.cc = null; S.cr = null; S.net = null;
+  const i = m ? T.maps.findIndex((x) => x.id === m.id) : T.maps.length - 1;
+  for (const j of [i - 2, i - 1, i + 1, i + 2]) { const x = T.maps[j]; if (x && (!latest || x.id !== latest.id)) ensurePast(x.id); }
+}
+
+let scrubFrame = 0;
+function scrubMove(f) {
+  const D = S.tDrag, T = S.tl[S.repo];
+  if (!D || !T) return;
+  D.f = f;
+  if (scrubFrame) return;
+  scrubFrame = requestAnimationFrame(() => {
+    scrubFrame = 0;
+    const D2 = S.tDrag;
+    if (!D2) return;
+    /* Every frame: only the handle and its time move. */
+    const h = $('tlhandle'), tip = $('tltip');
+    const g = nearestTarget(D2.targets, D2.at, D2.f);
+    if (h) h.style.left = (D2.f * 100).toFixed(3) + '%';
+    const changed = !D2.target || g.at !== D2.target.at || g.kind !== D2.target.kind;
+    D2.target = g;
+    if (tip) tip.textContent = scrubTip(T, D2);
+    /* Only when the snap point changes: the map and the panel. */
+    if (changed) { scrubApply(T, g); scheduleRender(); }
+  });
+}
+
+document.addEventListener('pointerdown', (e) => {
+  if (S.tab !== 'code' || e.button !== 0) return;
+  const inTl = e.target.closest && e.target.closest('[data-tl]');
+  if (!inTl || e.target.closest('button, [data-tver], [data-tmap]')) return;
+  const T = S.tl[S.repo];
+  if (!T || !T.phases || !T.phases.length) return;
+  e.preventDefault();
+  S.tDrag = { f: scrubFrac(e) ?? 1, target: null, targets: snapTargets(T), at: scaleOf(T.phases, T.now) };
+  const h = $('tlhandle'); if (h) h.classList.add('dragging');
+  scrubMove(S.tDrag.f);
+});
+document.addEventListener('pointermove', (e) => {
+  if (!S.tDrag) return;
+  const f = scrubFrac(e);
+  if (f != null) scrubMove(f);
+});
+const scrubEnd = () => {
+  const D = S.tDrag;
+  if (!D) return;
+  S.tDrag = null;
+  if (scrubFrame) { cancelAnimationFrame(scrubFrame); scrubFrame = 0; }
+  const T = S.tl[S.repo], g = D.target || (T && nearestTarget(D.targets, D.at, D.f));
+  if (T && g) scrubApply(T, g);
+  /* Let go on a plan version: the plan then, read from the canvas history. */
+  if (g && g.kind === 'version') return pickMoment(g.at);
+  render();
+};
+document.addEventListener('pointerup', scrubEnd);
+document.addEventListener('pointercancel', scrubEnd);
 
 /* The panel for a phase, or for the plan at a moment. */
 function phasePanel(cv) {

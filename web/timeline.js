@@ -26,6 +26,35 @@ export function ist(t, withDay = true) {
   return (withDay ? d.getUTCDate() + ' ' + mon + ', ' : '') + hh + ':' + mm + ' IST';
 }
 
+/* Where the scrubber can rest (t-eef843abdf): every map, every plan version,
+   and now - in time order. */
+export function snapTargets(T) {
+  const out = T.maps.map((m) => ({ at: m.at, kind: 'map', id: m.id }))
+    .concat(T.phases.flatMap((p) => p.versions.map((v) => ({ at: v, kind: 'version' }))));
+  out.push({ at: T.now, kind: 'now' });
+  return out.sort((a, b) => ms(a.at) - ms(b.at));
+}
+
+/* The time at a place along the strip, 0..1 - the scale read backwards. */
+export function timeAt(phases, now, f) {
+  const a = ms(phases.length ? phases[0].start : now), b = Math.max(ms(now), a + 1);
+  return new Date(a + Math.max(0, Math.min(1, f)) * (b - a)).toISOString();
+}
+
+/* The snap point nearest a place along the strip. */
+export function nearestTarget(targets, at, f) {
+  let best = null, d = Infinity;
+  for (const t of targets) { const x = Math.abs(at(t.at) - f); if (x < d) { d = x; best = t; } }
+  return best;
+}
+
+/* The map shown for a moment: the newest made at or before it. */
+export function mapAtOrBefore(maps, t) {
+  let best = null;
+  for (const m of maps) if (ms(m.at) <= ms(t)) best = m;
+  return best;
+}
+
 /* The newest map made inside a span, or null. */
 export function lastMapIn(maps, start, end) {
   const inside = maps.filter((m) => ms(m.at) >= ms(start) && (!end || ms(m.at) < ms(end)));
