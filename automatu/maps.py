@@ -95,8 +95,20 @@ def make_map(dir: str, numbers: Numbers | None = None) -> dict:
 
 def latest_map(dir: str) -> dict | None:
     """The newest snapshot of a repository's map, as it was made."""
-    key = repo_key(dir)
-    cur = db().execute("SELECT * FROM map_run WHERE repo = %s ORDER BY made_at DESC, id DESC LIMIT 1", (key,))
+    return _map(repo_key(dir), None)
+
+
+def map_by_id(dir: str, run: int) -> dict | None:
+    """One snapshot of a repository's map, by its run id - an earlier map, as
+    it was made (t-25f10ce5fd)."""
+    return _map(repo_key(dir), run)
+
+
+def _map(key: str, run: int | None) -> dict | None:
+    if run is None:
+        cur = db().execute("SELECT * FROM map_run WHERE repo = %s ORDER BY made_at DESC, id DESC LIMIT 1", (key,))
+    else:
+        cur = db().execute("SELECT * FROM map_run WHERE repo = %s AND id = %s", (key, run))
     row = cur.fetchone()
     if not row:
         return None

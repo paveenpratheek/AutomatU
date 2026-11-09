@@ -87,16 +87,49 @@ def region_thoughts(repo: str, region: str) -> dict:
 
 
 @app.get("/api/code")
-def code(repo: str) -> dict:
-    """A repository's newest map with what the traffic search reads, for the Code map."""
+def code(repo: str, run: int | None = None) -> dict:
+    """A repository's newest map - or, with run, an earlier one - with what the
+    traffic search reads, for the Code map."""
     from .views import code_view
     try:
-        v = code_view(repo)
+        v = code_view(repo, run)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not v:
         raise HTTPException(404, "no map for this repository yet: automatu align <repo>")
     return v
+
+
+def _bound(repo: str) -> None:
+    from .binding import all_bindings
+    if repo not in {b["repo"] for b in all_bindings()}:
+        raise HTTPException(404, "not a repository bound to a canvas")
+
+
+@app.get("/api/timeline")
+def timeline_of(repo: str) -> dict:
+    """A bound repository in time: its phases, plan versions, commits, thoughts
+    and maps, and the boxes whose code moved on while their words did not
+    (t-25f10ce5fd, t-e8ed35d743)."""
+    from .timeline import timeline
+    _bound(repo)
+    try:
+        return timeline(repo)
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(503, str(e))
+
+
+@app.get("/api/plan-at")
+def plan_at_of(repo: str, when: str) -> dict:
+    """The plan as it stood at a moment, and what the version before it said."""
+    from .timeline import plan_at
+    _bound(repo)
+    try:
+        return plan_at(repo, when)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
 
 
 @app.middleware("http")

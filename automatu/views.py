@@ -16,7 +16,7 @@ import threading
 from urllib.parse import quote
 
 from .binding import all_bindings, plan_sections
-from .maps import head_of, latest_map
+from .maps import head_of, latest_map, map_by_id
 from .profile import live_thoughts
 from .sources.canvas import canvas_files, read_canvas_raw, sections, tree
 from .sources.gitx import Repo, read_repo
@@ -76,16 +76,25 @@ def _with_pictures(canvas: str, totems: list[dict]) -> None:
         walk(t)
 
 
-def code_view(repo_key: str) -> dict | None:
-    m = latest_map(repo_key)
+def code_view(repo_key: str, run: int | None = None) -> dict | None:
+    """The newest map, or with run an earlier one - shown with the plan's words
+    as they stood when it was made, from the canvas history (t-25f10ce5fd).
+    An earlier map's regions are read at HEAD; those gone since are counted."""
+    m = map_by_id(repo_key, run) if run else latest_map(repo_key)
     if not m:
         return None
     b = next((x for x in all_bindings() if x["repo"] == m["run"]["repo"]), None)
     words = {}
     if b:
         try:
-            script = read_canvas_raw(b["canvas"])["script"]
-            words = {s.address: s.words for s in plan_sections(b, sections(script), script)}
+            if run:
+                from .sources.canvas import read_canvas_at
+                from .timeline import utc
+                script = read_canvas_at(m["run"]["canvas"], utc(m["run"]["made_at"]))["script"]
+                words = {s.address: s.words for s in sections(script)}
+            else:
+                script = read_canvas_raw(b["canvas"])["script"]
+                words = {s.address: s.words for s in plan_sections(b, sections(script), script)}
         except RuntimeError:
             words = {}
     repo = _repo(m["run"]["repo"])
@@ -100,5 +109,11 @@ def code_view(repo_key: str) -> dict | None:
                 commits[sha] = [repo.commits[sha].date, repo.commits[sha].text]
         for t in regions[r.id]["thoughts"]:
             thoughts[t] = live[t].text
+    # A region of an earlier map that is gone from HEAD is still shown, drawn
+    # from its id (file::name), with no lines, commits or thoughts of its own now.
+    gone = [p["region"] for p in m["places"] if p["region"] not in regions]
+    for rid in gone:
+        file, _, name = rid.partition("::")
+        regions[rid] = {"file": file, "name": name, "lines": [0, 0], "commits": [], "thoughts": [], "cites": 0, "gone": True}
     return {**m, "words": {a: words.get(a, "") for a in m["run"]["sections"]},
-            "regions": regions, "commits": commits, "thoughts": thoughts}
+            "regions": regions, "commits": commits, "thoughts": thoughts, "gone": len(gone)}
