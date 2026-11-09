@@ -92,7 +92,8 @@ def code_view(repo_key: str) -> dict | None:
     regions, commits, thoughts = {}, {}, {}
     for r in repo.regions:
         regions[r.id] = {"file": r.file, "name": r.name, "lines": [r.start, r.end],
-                         "commits": [sha for sha, _ in r.commits], "thoughts": [t for t in r.thoughts if t in live]}
+                         "commits": [sha for sha, _ in r.commits], "thoughts": [t for t in r.thoughts if t in live],
+                         "cites": len(r.cites)}
         for sha, _ in r.commits:
             if sha in repo.commits:
                 commits[sha] = [repo.commits[sha].date, repo.commits[sha].text]

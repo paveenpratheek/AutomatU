@@ -69,6 +69,23 @@ def relations_of(canvas: str) -> dict:
         raise HTTPException(503, str(e))
 
 
+@app.get("/api/region-thoughts")
+def region_thoughts(repo: str, region: str) -> dict:
+    """One code region's thoughts as a graph (t-b2c1b5bfcc)."""
+    from .binding import all_bindings
+    from .thoughtnet import region_net
+    from .views import _repo
+    if repo not in {b["repo"] for b in all_bindings()}:
+        raise HTTPException(404, "not a repository bound to a canvas")
+    try:
+        net = region_net(_repo(repo), region)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not net:
+        raise HTTPException(404, "no such code region at HEAD")
+    return net
+
+
 @app.get("/api/code")
 def code(repo: str) -> dict:
     """A repository's newest map with what the traffic search reads, for the Code map."""

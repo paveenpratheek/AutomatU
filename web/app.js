@@ -14,6 +14,7 @@ import { keywords, hitsOf, shownAndOn, dominant, traffic, regionHits, zeros } fr
 import { buildCodeMap, hexD, regionAt } from './codelayout.js';
 import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js';
 import { addressOf, indexRelations, relationLayout } from './relate.js';
+import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -330,7 +331,8 @@ function codeHits(cv, kw) {
 const mapOf = (cv) => cv._map || (cv._map = buildCodeMap(cv));
 
 /* Level of detail by zoom: plan boxes only, then their clusters too. */
-const lodOf = (z) => (z < 0.6 ? 'g' : 'c');
+/* Zoom levels: plan boxes, then clusters, then single code regions. */
+const lodOf = (z) => (z < 0.6 ? 'g' : z < 1.5 ? 'c' : 'r');
 
 function fitView(map) {
   const { w, h } = stageSize(), top = 64, bottom = 64;
@@ -387,6 +389,7 @@ function renderCode() {
   /* Selection: a box's outline, or a cluster's dashed outline with dotted lines to the clusters it shares code with. */
   const g0 = S.cg != null ? map.groups.find((g) => g.address === S.cg) : null, c0 = S.cc != null ? map.clusters[S.cc] : null;
   if (g0) svg += `<path d="${g0.edge}" fill="none" stroke="#141413" stroke-width="3.5" vector-effect="non-scaling-stroke"/>`;
+  const r0 = S.cr ? map.regions.find((r) => r.id === S.cr) : null;
   let links = 0;
   if (c0) {
     svg += `<path d="${c0.edge}" fill="none" stroke="#141413" stroke-width="2.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>`;
@@ -400,12 +403,13 @@ function renderCode() {
     if (lk.length) svg += `<path d="${lk.join('')}" fill="none" stroke="#141413" stroke-width="1.5" stroke-dasharray="2 5" vector-effect="non-scaling-stroke"/>`;
   }
 
+  if (r0) svg += `<path d="${hexD(r0.x, r0.y)}" fill="${map.groups.find((g) => g.id === r0.group).col}" fill-opacity="0.35" stroke="#141413" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
   const gl = map.groups.map((g) => {
     const on = g0 && g0.id === g.id, n = groupHeat[g.id] || 0;
     const ink = on ? '#FFFFFF' : (lit.size && !n ? '#8A8E95' : '#141413');
     return `<button type="button" class="glab" data-group="${esc(g.address)}" style="left:${g.at[0].toFixed(1)}px;top:${(g.box.t - 8).toFixed(1)}px;border-color:${g.col};background:${on ? g.col : (n ? tint(g.col, 0.18) : '#FFFFFF')};color:${ink}">${esc(g.name)}${n ? ' · ' + n : ''}</button>`;
   }).join('');
-  const cl = lod === 'c' ? map.clusters.filter((c) => c.size >= 3 || clusterHeat[c.id]).map((c) => {
+  const cl = lod !== 'g' ? map.clusters.filter((c) => c.size >= 3 || clusterHeat[c.id]).map((c) => {
     const n = clusterHeat[c.id] || 0;
     return `<div class="clab" style="left:${c.at[0].toFixed(1)}px;top:${c.at[1].toFixed(1)}px;${lit.size && !n ? 'color:#8A8E95;' : ''}">${esc(c.name)}${n ? ' · ' + n : ''}</div>`;
   }).join('') : '';
@@ -418,8 +422,74 @@ function renderCode() {
     (S.fresh.size ? `<span class="news">${S.fresh.size} newly placed</span>` : '') + `</div>` +
     `<div class="repochips">${chips}<span style="flex:1"></span><span class="muted" style="font-size:12px;margin-right:8px">${links} ${links === 1 ? 'link' : 'links'} shown</span>` +
     `<button type="button" class="zb" data-zoom="fit">Fit</button><button type="button" class="zb" data-zoom="-1" aria-label="Zoom out">−</button><span class="zl">${Math.round(V.z * 100)}%</span><button type="button" class="zb" data-zoom="1" aria-label="Zoom in">+</button></div>` +
-    `</div>`;
+    `</div>` + netHtml(cv);
   renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed);
+}
+
+/* ------------------------------------------------------------ a region's thoughts */
+
+/* Asked for once per region; the page redraws when the answer arrives. */
+function openNet(rid) {
+  S.net = rid; S.netSel = null;
+  if (S.netData && S.netData.region.id === rid) return render();
+  S.netData = null; S.netFailed = '';
+  render();
+  getJson('/api/region-thoughts?repo=' + encodeURIComponent(S.repo) + '&region=' + encodeURIComponent(rid))
+    .then((j) => { if (S.net === rid) S.netData = j; })
+    .catch((e) => { if (S.net === rid) S.netFailed = e.message; })
+    .then(() => { if (S.tab === 'code') render(); });
+}
+
+/* The region as a square among its thoughts, as the prototype drew it
+   (t-b2c1b5bfcc): solid lines to what its code cites, thin grey lines to
+   what was recorded on its commits, GitX's links between thoughts, history
+   faded; a thought picked is read in full in the side panel. */
+function netHtml(cv) {
+  if (!S.net) return '';
+  const R = cv.regions[S.net] || {};
+  const head = (sub) => `<div class="nethead"><span class="t">${esc(R.name || S.net)}</span><span class="m">${esc(sub)}</span></div>`;
+  const shell = (inner, side) => `<div class="netov" role="dialog" aria-label="Thoughts of ${esc(R.name || '')}"><div class="netcanvas" id="netcanvas">${inner}</div>` +
+    `<aside class="netside"><div style="display:flex;justify-content:flex-end"><button type="button" class="bback light" data-netclose="1">Close</button></div>${side}</aside></div>`;
+  const N = S.netData;
+  if (!N || N.region.id !== S.net) return shell(head(S.netFailed || 'Reading its thoughts from GitX…'), '');
+  const { w, h } = stageSize(), W = Math.max(420, w - 48 - 360), H = Math.max(320, h - 74 - 70);
+  const pos = S.netPos && S.netPos.key === S.net + '|' + W + '|' + H ? S.netPos.pos : (S.netPos = { key: S.net + '|' + W + '|' + H, pos: layoutNet(N.order, N.edges, W, H) }).pos;
+  const cur = N.order.filter((id) => N.thoughts[id].current).length;
+  let svg = '';
+  for (const e of N.edges) {
+    const a = pos[e.a], b = pos[e.b];
+    if (!a || !b) continue;
+    const s = edgeStyle(e.kind);
+    svg += `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="${s.col}" stroke-width="${s.sw}" opacity="${s.op}"/>`;
+  }
+  const label = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+  let nodes = `<button type="button" class="netnode" data-netsel="" title="${esc(R.file + '::' + R.name)}" style="left:${pos['#'].x - 9}px;top:${pos['#'].y - 9}px">` +
+    `<span class="mk" style="width:18px;height:18px;border-radius:4px;background:#141413;border:2px solid #141413"></span><span class="lb">${esc(label(R.name || '', 46))}</span></button>`;
+  for (const id of N.order) {
+    const t = N.thoughts[id], col = KCOL[t.kind] || '#5B5F66', p = pos[id], on = S.netSel === id;
+    nodes += `<button type="button" class="netnode" data-netsel="${esc(id)}" title="${esc(id + ' · ' + (t.kind || '') + '\n' + t.text)}" style="left:${(p.x - 7).toFixed(1)}px;top:${(p.y - 7).toFixed(1)}px;opacity:${t.current ? 1 : 0.5}">` +
+      `<span class="mk" style="width:14px;height:14px;border-radius:50%;background:${t.current ? col : '#FFFFFF'};border:2px solid ${col};${on ? 'box-shadow:0 0 0 4px rgba(20, 20, 19, 0.25)' : ''}"></span><span class="lb">${esc(label(t.text, 54))}</span></button>`;
+  }
+  const inner = head(`${cv.run.repo.split('/').pop()} · ${R.file} · ${R.lines[1] - R.lines[0] + 1} lines · ${N.order.length} thoughts, ${cur} current`) +
+    `<svg class="netedges" width="${W}" height="${H}" aria-hidden="true">${svg}</svg>${nodes}`;
+  let picked = '';
+  const t = S.netSel && N.thoughts[S.netSel];
+  if (t) {
+    const why = t.role === 'cited' ? 'Cited by this region\'s code today.' : t.role === 'commit' ? 'Recorded on a commit whose lines are in this region.' : 'Linked to a thought this region\'s code cites.';
+    const meta = [why, t.outcome ? 'Outcome: ' + t.outcome + (t.graph === 'waiting' ? ', waiting to be settled' : '') : '',
+      t.recorded_on ? `Recorded at ${t.recorded} (${t.recorded_on[0]}): ${t.recorded_on[1]}` : '',
+      t.settled_in ? `Settled in ${t.settled} (${t.settled_in[0]}): ${t.settled_in[1]}` : '',
+      t.links.length ? 'Links: ' + t.links.map(([k, to]) => k + ' ' + to).join(', ') : ''].filter(Boolean);
+    picked = `<div class="nphead" style="color:${KCOL[t.kind] || '#5B5F66'}">${esc(S.netSel)} · ${esc(t.kind || '')} · ${t.current ? 'current' : 'history'}</div>` +
+      `<p class="nptext">${esc(t.text)}</p><div class="npmeta">${esc(meta.join('\n'))}</div><div class="npsep"></div>`;
+  }
+  const map = mapOf(cv), r = map.regions.find((x) => x.id === S.net);
+  const cl = r ? map.clusters[r.cl] : null, g = r ? map.groups.find((x) => x.id === r.group) : null;
+  const side = picked + `<div class="k">This code region</div><p class="npmeta">${esc(R.file)}${cl ? '\nIn: ' + esc(cl.name) + (g && !g.wait ? ' (under ' + esc(g.name) + ')' : ' (not yet placed)') : ''}</p>` +
+    `<div class="k">Commits whose lines are in it today</div>` +
+    N.commits.map((c) => `<div class="npcommit"><span class="sha">${esc(c.sha)}</span> <span class="muted">${esc(c.date)}</span><br>${esc(c.subject)}</div>`).join('') +
+    `<div class="k">Reading it</div><p class="npmeta">The square is the code region. A solid line means its code cites the thought today. A thin grey line leads to a thought recorded on one of its commits. The other lines are the links between thoughts that GitX recorded. Faded thoughts are history: no code cites them now. Colours: decision blue, finding green, cost orange, lesson purple.</p>`;
+  return shell(inner, side);
 }
 
 function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
@@ -428,7 +498,9 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
     const parts = [['Code map', 'code', !S.cg && S.cc == null]];
     const g0 = S.cg != null ? map.groups.find((g) => g.address === S.cg) : (S.cc != null ? map.groups.find((g) => g.id === map.clusters[S.cc].group) : null);
     if (g0) parts.push([g0.name, 'g:' + g0.address, S.cc == null]);
-    if (S.cc != null) parts.push([map.clusters[S.cc].name, '', true]);
+    const rr = S.cr ? map.regions.find((r) => r.id === S.cr) : null;
+    if (S.cc != null) parts.push([map.clusters[S.cc].name, rr ? 'c:' + S.cc : '', !rr]);
+    if (rr) parts.push([rr.name.length > 28 ? rr.name.slice(0, 26) + '…' : rr.name, '', true]);
     return `<nav class="pcrumbs">${parts.map(([n, go, last], i) => (i ? '<span class="arrow">›</span>' : '') + `<button type="button" class="crumb${last ? ' last' : ''}" data-pcrumb="${esc(go)}">${esc(n)}</button>`).join('')}</nav>`;
   };
   let trafficBox = '';
@@ -443,6 +515,20 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
   const clusterRow = (c, extra = '') => { const g = map.groups.find((x) => x.id === c.group);
     return `<button type="button" class="row" data-cluster="${c.id}"><span class="sw hexclip" style="background:${g.col};opacity:${g.wait ? 0.5 : 1}"></span><span class="nm">${esc(c.name)} <span class="muted" style="font-size:12px">${c.scope ? 'commit scope' : 'file'}</span>${extra}</span><span class="mt">${c.size}</span></button>`; };
 
+  /* A code region: where it is, what it is in, the commits whose lines are in
+     it, and the button to its thoughts (t-b2c1b5bfcc). */
+  const r0 = S.cr ? map.regions.find((r) => r.id === S.cr) : null;
+  if (r0 && cv.regions[r0.id]) {
+    const R = cv.regions[r0.id], c = map.clusters[r0.cl], g = map.groups.find((x) => x.id === r0.group);
+    const lines = R.lines[1] - R.lines[0] + 1;
+    const commits = R.commits.slice(0, 12).map((sha) => { const x = cv.commits[sha] || ['', '']; return `<div class="npcommit"><span class="sha">${esc(sha.slice(0, 7))}</span> <span class="muted">${esc(x[0])}</span><br>${esc(commitText(cv, sha).split('\n')[0])}</div>`; }).join('');
+    P.innerHTML = crumbsHtml() + `<div class="k">Code region</div><h2 class="mono" style="font-size:18px;line-height:1.35">${esc(R.name)}</h2>` +
+      `<p class="owner">${esc(cv.run.repo.split('/').pop())} · ${esc(R.file)}<br>${lines} lines${r0.fresh ? ' · newest line ' + esc(r0.fresh) : ''}<br>In: ${esc(c.name)}${g.wait ? ' · not yet placed' : ' · under ' + esc(g.name)}` +
+      (r0.also.length ? '<br>Also serves: ' + r0.also.map((s) => esc(short(s))).join(', ') : '') + `</p>` +
+      `<button type="button" class="netbtn" data-net="${esc(r0.id)}">${R.cites ? `Its thoughts: ${R.cites} cited by its code, and the ones around them` : 'Its thoughts: those recorded on its commits'}</button>` +
+      `<h3>Commits whose lines are in it today</h3>${commits || '<p class="muted">None found.</p>'}`;
+    return;
+  }
   if (S.cc != null && map.clusters[S.cc]) {
     const c = map.clusters[S.cc], g = map.groups.find((x) => x.id === c.group);
     P.innerHTML = crumbsHtml() + `<div class="k">Cluster · ${c.scope ? 'commit scope' : 'file'}</div><h2>${esc(c.name)}</h2>` +
@@ -499,8 +585,10 @@ function codePointerUp(e) {
   const rect = vp.getBoundingClientRect(), map = mapOf(cv);
   const r = regionAt(map, (e.clientX - rect.left - S.cview.tx) / S.cview.z, (e.clientY - rect.top - S.cview.ty) / S.cview.z);
   if (!r) { S.cg = null; S.cc = null; return render(); }
-  if (lodOf(S.cview.z) === 'g') { S.cg = map.groups.find((g) => g.id === r.group).address; S.cc = null; }
-  else { S.cc = r.cl; S.cg = null; }
+  /* Zoomed in to regions, or clicking inside the cluster already open: the region itself. */
+  if (lodOf(S.cview.z) === 'g') { S.cg = map.groups.find((g) => g.id === r.group).address; S.cc = null; S.cr = null; }
+  else if (lodOf(S.cview.z) === 'r' || S.cc === r.cl) { S.cr = r.id; S.cc = r.cl; S.cg = null; }
+  else { S.cc = r.cl; S.cg = null; S.cr = null; }
   render();
 }
 function zoomAt(px_, py_, z2) {
@@ -544,7 +632,7 @@ function renderChrome() {
 
 export function render() {
   renderChrome();
-  $('panel').hidden = S.tab === 'canvas';
+  $('panel').hidden = S.tab === 'canvas' || (S.tab === 'code' && !!S.net);
   if (S.tab === 'code') renderCode();
   else if (S.tab === 'canvas') renderBoard();
   else renderMain();
@@ -676,10 +764,16 @@ document.addEventListener('click', (e) => {
   if (d.bzoom) { const { w, h } = stageSize(); return boardZoomAt(w / 2, h / 2, S.bview.z * (d.bzoom === '1' ? 1.25 : 0.8)); }
   if (d.chip) { const on = S.query.trim().toLowerCase() === d.chip.toLowerCase(); S.query = on ? '' : d.chip; S.off = {}; $('term').value = S.query; return render(); }
   if (d.kw) { S.off[d.kw] = !S.off[d.kw]; return render(); }
-  if (d.repo) { S.repo = d.repo; S.cg = null; S.cc = null; S.fresh = new Set(); try { localStorage.setItem('automatu.repo', d.repo); } catch (_) {} loadCode(); return render(); }
-  if (d.group !== undefined) { S.cg = S.cg === d.group ? null : d.group; S.cc = null; return render(); }
-  if (d.cluster !== undefined) { S.cc = +d.cluster; S.cg = null; return render(); }
-  if (d.pcrumb !== undefined) { if (d.pcrumb === 'code') { S.cg = null; S.cc = null; } else if (d.pcrumb.startsWith('g:')) { S.cg = d.pcrumb.slice(2); S.cc = null; } return render(); }
+  if (d.net) return openNet(d.net);
+  if (d.netclose) { S.net = null; S.netSel = null; return render(); }
+  if (d.netsel !== undefined) { S.netSel = d.netsel || null; return render(); }
+  if (d.repo) { S.repo = d.repo; S.cg = null; S.cc = null; S.cr = null; S.net = null; S.fresh = new Set(); try { localStorage.setItem('automatu.repo', d.repo); } catch (_) {} loadCode(); return render(); }
+  if (d.group !== undefined) { S.cg = S.cg === d.group ? null : d.group; S.cc = null; S.cr = null; return render(); }
+  if (d.cluster !== undefined) { S.cc = +d.cluster; S.cg = null; S.cr = null; return render(); }
+  if (d.pcrumb !== undefined) {
+    if (d.pcrumb === 'code') { S.cg = null; S.cc = null; } else if (d.pcrumb.startsWith('g:')) { S.cg = d.pcrumb.slice(2); S.cc = null; } else if (d.pcrumb.startsWith('c:')) S.cc = +d.pcrumb.slice(2);
+    S.cr = null; return render();
+  }
   if (d.zoom) {
     if (d.zoom === 'fit') { const cv = S.code[S.repo]; if (cv) S.cview = { repo: S.repo, ...fitView(mapOf(cv)) }; return render(); }
     const { w, h } = stageSize(); return zoomAt(w / 2, h / 2, S.cview.z * (d.zoom === '1' ? 1.25 : 0.8));
@@ -708,6 +802,8 @@ document.addEventListener('pointermove', (e) => {
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (closePic()) return;
+  if (S.tab === 'code' && S.net) { S.net = null; S.netSel = null; render(); return; }
+  if (S.tab === 'code' && S.cr) { S.cr = null; render(); return; }
   if (S.tab === 'main' && S.sel) { S.sel = null; render(); }
   else if (S.tab === 'main' && S.path.length > 1) go(S.path.slice(0, -1), null, 0, 0, -1);
   else if (S.tab === 'code' && (S.cg != null || S.cc != null)) { S.cg = null; S.cc = null; render(); }
@@ -731,6 +827,11 @@ export async function loadCode() {
     S.code[S.repo] = await getJson('/api/code?repo=' + encodeURIComponent(S.repo));
     S.codeFailed = '';
     if (S.pendingBox) { S.cg = S.code[S.repo].run.sections.find((s) => short(s).toLowerCase() === S.pendingBox.toLowerCase()) || null; S.pendingBox = null; }
+    if (S.pendingRegion) {
+      const r = mapOf(S.code[S.repo]).regions.find((x) => x.id === S.pendingRegion);
+      if (r) { S.cr = r.id; S.cc = r.cl; S.cg = null; if (S.pendingNet) openNet(r.id); }
+      S.pendingRegion = null; S.pendingNet = false;
+    }
   } catch (e) { S.codeFailed = 'Could not read the code map: ' + e.message; }
   if (S.tab === 'code') render();
 }
@@ -749,6 +850,7 @@ function fromLink() {
     S.tab = 'canvas';
   }
   if (u.get('box')) S.pendingBox = u.get('box');
+  if (u.get('region')) { S.pendingRegion = u.get('region'); S.pendingNet = u.get('net') === '1'; }
   if (u.get('open') && S.m) {
     let at = 'root';
     for (const name of u.get('open').split('>').map((s) => s.trim())) {

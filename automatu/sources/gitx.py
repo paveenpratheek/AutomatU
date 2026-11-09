@@ -58,6 +58,7 @@ class Region:
     end: int
     commits: list[tuple[str, int]]  # (sha, lines still in the region), most lines first
     thoughts: list[str]
+    cites: list[str] = field(default_factory=list)  # the thoughts its own code cites today
 
 
 @dataclass
@@ -167,7 +168,7 @@ def read_repo(dir: str) -> Repo:
         via_commit = [t for sha, _ in live for t in by_commit.get(sha, [])]
         regions.append(Region(
             id=r["file"] + "::" + r["name"], file=r["file"], name=r["name"], kind=r.get("kind"),
-            start=r["from"], end=r["to"], commits=live, thoughts=list(dict.fromkeys(cited + via_commit)),
+            start=r["from"], end=r["to"], commits=live, thoughts=list(dict.fromkeys(cited + via_commit)), cites=cited,
         ))
     known = {r.id for r in regions}
     uses = [(a, b) for a, b in read.get("uses") or [] if a in known and b in known and a != b]
