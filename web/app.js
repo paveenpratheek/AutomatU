@@ -15,7 +15,7 @@ import { buildCodeMap, hexD, regionAt } from './codelayout.js';
 import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js';
 import { addressOf, indexRelations, relationLayout } from './relate.js';
 import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
-import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore } from './timeline.js';
+import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore, hexChanges, popDelay } from './timeline.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -384,6 +384,9 @@ function ensurePast(run) {
   return S.past[key];
 }
 
+/* Hexagons hold still when the system asks for less motion. */
+const REDUCED = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } };
+
 /* One redraw per frame at most. */
 let renderQueued = false;
 function scheduleRender() {
@@ -450,17 +453,60 @@ function renderCode() {
 
   /* Fills: by plan box, fainter for older code and for code not yet placed. */
   const fills = {}, days = (d) => (map.newest && d ? (Date.parse(map.newest) - Date.parse(d)) / 864e5 : 0);
-  let dots = '';
+  const look = new Map();
   for (const r of map.regions) {
     const g = map.groups.find((x) => x.id === r.group), age = days(r.fresh), b = age <= 7 ? 0 : age <= 21 ? 1 : 2;
-    const gone = cv.regions[r.id] && cv.regions[r.id].gone, k = g.id + '|' + (gone ? 'gone' : b);
-    (fills[k] = fills[k] || { col: g.col, op: gone ? 0.22 : (g.wait ? 0.45 : 0.9) * [1, 0.72, 0.5][b], d: [] }).d.push(hexD(r.x, r.y));
+    const gone = cv.regions[r.id] && cv.regions[r.id].gone;
+    look.set(r.id, { x: r.x, y: r.y, col: g.col, op: gone ? 0.22 : (g.wait ? 0.45 : 0.9) * [1, 0.72, 0.5][b], k: g.id + '|' + (gone ? 'gone' : b) });
+  }
+  /* When the map shown changes, the hexagons that changed move instead of the
+     whole map flipping (t-31818c0346): only they are drawn one by one. */
+  /* A motion outlives a redraw: the panel filling in, or a map arriving, must
+     not cut it short - it carries on from where it was. */
+  const key = S.repo + '#' + cv.run.id, now = performance.now();
+  if (S.shown && S.shown.repo === S.repo && S.shown.key !== key && !REDUCED()) S.motion = { key, prev: S.shown.pos, start: now, td: S.tDrag ? 260 : 420 };
+  const mo = S.motion && S.motion.key === key && now - S.motion.start < S.motion.td + 300 ? S.motion : null;
+  const prev = mo ? mo.prev : null, el = mo ? now - mo.start : 0;
+  const ch = prev ? hexChanges(prev, look) : null, single = new Set();
+  /* Each moving shape is its own small layer that the graphics card slides or
+     scales; moving it inside the map's one SVG repainted the whole map on
+     every frame (t-c4b73fa51a). */
+  let moving = '';
+  if (ch) {
+    const spread = 160 * mo.td / 420, R = map.S + 1, wait = (ms) => `animation-delay:${(ms - el).toFixed(0)}ms`;
+    const layer = (cls, pts, d, fill, op, style) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [x, y] of pts) { x0 = Math.min(x0, x - R); y0 = Math.min(y0, y - R); x1 = Math.max(x1, x + R); y1 = Math.max(y1, y + R); }
+      const w = (x1 - x0).toFixed(1), h = (y1 - y0).toFixed(1);
+      return `<svg class="hxl ${cls}" aria-hidden="true" width="${w}" height="${h}" viewBox="${x0.toFixed(1)} ${y0.toFixed(1)} ${w} ${h}" style="left:${x0.toFixed(1)}px;top:${y0.toFixed(1)}px;${style}"><path d="${d}" fill="${fill}" fill-opacity="${op.toFixed(2)}"/></svg>`;
+    };
+    for (const id of ch.leave) { const p = prev.get(id); moving += layer('hout', [[p.x, p.y]], hexD(p.x, p.y), p.col, p.op, wait(popDelay(id, spread * 0.5))); }
+    for (const id of ch.enter) { const n = look.get(id); single.add(id); moving += layer('hin', [[n.x, n.y]], hexD(n.x, n.y), n.col, n.op, wait(spread * 0.4 + popDelay(id, spread))); }
+    /* Hexagons sliding by the same amount - most often a whole cluster moved -
+       slide as one layer, so a few dozen layers move instead of hundreds. */
+    const slides = {};
+    for (const id of ch.move.concat(ch.recolour)) {
+      const n = look.get(id), p = prev.get(id), dx = Math.round((p.x - n.x) * 2) / 2, dy = Math.round((p.y - n.y) * 2) / 2;
+      single.add(id);
+      const k = dx + '|' + dy + '|' + p.col + '|' + n.col + '|' + n.op.toFixed(2);
+      const m = (slides[k] = slides[k] || { dx, dy, from: p.col, col: n.col, op: n.op, d: [], pts: [] });
+      m.d.push(hexD(n.x, n.y)); m.pts.push([n.x, n.y]);
+    }
+    for (const m of Object.values(slides)) {
+      moving += layer((m.dx || m.dy ? 'hmv' : '') + (m.from !== m.col ? ' hrc' : ''), m.pts, m.d.join(''), m.col, m.op, `--dx:${m.dx}px;--dy:${m.dy}px;--from:${m.from};${wait(0)}`);
+    }
+  }
+  S.shown = { repo: S.repo, key, pos: look };
+  let dots = '';
+  for (const r of map.regions) {
+    const L = look.get(r.id);
+    if (!single.has(r.id)) (fills[L.k] = fills[L.k] || { col: L.col, op: L.op, d: [] }).d.push(hexD(r.x, r.y));
     if (r.also.length) dots += 'M' + (r.x - 2.6).toFixed(1) + ' ' + r.y.toFixed(1) + 'a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0';
   }
   let svg = Object.values(fills).map((f) => `<path d="${f.d.join('')}" fill="${f.col}" fill-opacity="${f.op.toFixed(2)}"/>`).join('');
-  svg += `<path d="${map.clusters.map((c) => c.edge).join('')}" fill="none" stroke="#FBFAF7" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
-  if (dots) svg += `<path d="${dots}" fill="#FFFFFF" stroke="#5B5F66" stroke-width="0.6"/>`;
-  svg += `<path d="${map.groups.map((g) => g.edge).join('')}" fill="none" stroke="#141413" stroke-width="1.4" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+  svg += `<path class="edge" d="${map.clusters.map((c) => c.edge).join('')}" fill="none" stroke="#FBFAF7" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
+  if (dots) svg += `<path class="edge" d="${dots}" fill="#FFFFFF" stroke="#5B5F66" stroke-width="0.6"/>`;
+  svg += `<path class="edge" d="${map.groups.map((g) => g.edge).join('')}" fill="none" stroke="#141413" stroke-width="1.4" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
 
   /* Traffic: the rest steps back; each lit region takes its strongest
      keyword's colour at one of five strengths (log scale). */
@@ -514,8 +560,8 @@ function renderCode() {
 
   const placed = cv.places.filter((p) => p.sections.length).length;
   stage.innerHTML = `<div class="cvp" id="cvp" data-lod="${lod}">` +
-    `<div class="cworld" style="width:${map.W}px;height:${map.H}px;transform:translate(${V.tx}px, ${V.ty}px) scale(${V.z});--iz:${(1 / Math.max(0.45, Math.min(V.z, 1.6))).toFixed(3)}">` +
-    `<svg width="${map.W}" height="${map.H}" aria-label="Code regions placed under the plan's boxes">${svg}</svg>${gl}${cl}</div>` +
+    `<div class="cworld${ch && el < mo.td ? ' anim' : ''}" style="--td:${mo ? mo.td : 420}ms;--el:-${el.toFixed(0)}ms;width:${map.W}px;height:${map.H}px;transform:translate(${V.tx}px, ${V.ty}px) scale(${V.z});--iz:${(1 / Math.max(0.45, Math.min(V.z, 1.6))).toFixed(3)}">` +
+    `<svg width="${map.W}" height="${map.H}" aria-label="Code regions placed under the plan's boxes">${svg}</svg>${moving}${gl}${cl}</div>` +
     `<div class="codehead"><span class="n">${esc(cv.run.repo.split('/').pop())}</span><span class="m">plan: ${esc(cv.run.canvas)} · at ${esc(String(cv.run.head).slice(0, 12))} · map ${cv.run.id} · ${placed} placed, ${cv.places.length - placed} waiting</span>` +
     (S.tRun ? `<span class="past">An earlier map: made ${esc(ist(cv.run.made_at))}${cv.gone ? ` · ${cv.gone} of its regions are gone since` : ''}</span>` : '') +
     (!S.tRun && S.fresh.size ? `<span class="news">${S.fresh.size} newly placed</span>` : '') + `</div>` + timelineHtml() +
@@ -606,9 +652,19 @@ function scrubMove(f) {
     const changed = !D2.target || g.at !== D2.target.at || g.kind !== D2.target.kind;
     D2.target = g;
     if (tip) tip.textContent = scrubTip(T, D2);
-    /* Only when the snap point changes: the map and the panel. */
-    if (changed) { scrubApply(T, g); scheduleRender(); }
+    /* Only when the snap point changes: the map and the panel - and while
+       hexagons are still moving, the next map waits for them, so a fast drag
+       does not pile motions on top of each other (t-c4b73fa51a). */
+    if (changed) applyWhenStill(T);
   });
+}
+
+let stillTimer = 0;
+function applyWhenStill(T) {
+  const left = S.motion ? S.motion.td - (performance.now() - S.motion.start) : 0;
+  clearTimeout(stillTimer); stillTimer = 0;
+  const go = () => { stillTimer = 0; const D = S.tDrag; if (D && D.target) { scrubApply(T, D.target); scheduleRender(); } };
+  if (left > 16) stillTimer = setTimeout(go, left); else go();
 }
 
 document.addEventListener('pointerdown', (e) => {
@@ -632,6 +688,7 @@ const scrubEnd = () => {
   if (!D) return;
   S.tDrag = null;
   if (scrubFrame) { cancelAnimationFrame(scrubFrame); scrubFrame = 0; }
+  if (stillTimer) { clearTimeout(stillTimer); stillTimer = 0; }
   const T = S.tl[S.repo], g = D.target || (T && nearestTarget(D.targets, D.at, D.f));
   if (T && g) scrubApply(T, g);
   /* Let go on a plan version: the plan then, read from the canvas history. */

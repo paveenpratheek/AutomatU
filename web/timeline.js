@@ -60,3 +60,28 @@ export function lastMapIn(maps, start, end) {
   const inside = maps.filter((m) => ms(m.at) >= ms(start) && (!end || ms(m.at) < ms(end)));
   return inside.length ? inside[inside.length - 1] : null;
 }
+
+/* What changed between the map on screen and the next, by region id
+   (t-c4b73fa51a): prev and next are Maps of id -> {x, y, col}. A region new
+   pops in, one gone pops out where it was, one that moved slides from its old
+   place, one that changed box fades from its old colour; the rest stay. */
+export function hexChanges(prev, next) {
+  const out = { enter: [], leave: [], move: [], recolour: [], stay: [] };
+  for (const [id, n] of next) {
+    const p = prev.get(id);
+    if (!p) out.enter.push(id);
+    else if (Math.abs(p.x - n.x) > 0.5 || Math.abs(p.y - n.y) > 0.5) out.move.push(id);
+    else if (p.col !== n.col) out.recolour.push(id);
+    else out.stay.push(id);
+  }
+  for (const id of prev.keys()) if (!next.has(id)) out.leave.push(id);
+  return out;
+}
+
+/* A small fixed delay per region, so new code pops in as a ripple rather than
+   all at once - the same region always waits the same. */
+export function popDelay(id, spread) {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 1000) / 1000 * spread;
+}

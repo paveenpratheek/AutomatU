@@ -302,3 +302,22 @@ button { font: inherit; color: inherit; }
 .bchip .sw { width: 10px; height: 10px; border-radius: 3px; }
 .bbar .zb { width: 36px; height: 36px; border-radius: 8px; border: 1px solid #C9C4B6; background: #FFFFFF; font-size: 16px; cursor: pointer; }
 .bbar .zl { width: 52px; text-align: center; font-family: var(--mono); font-size: 13px; }
+
+/* Hexagons that move in time (t-31818c0346): new code pops in, gone code pops
+   out where it was, moved code slides from its old place, code that changed box
+   fades from its old colour; outlines and labels fade in. */
+.hxl { position: absolute; overflow: visible; pointer-events: none; will-change: transform, opacity; }
+.hxl.hin { animation: hexIn var(--td, 420ms) cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.hxl.hout { animation: hexOut calc(var(--td, 420ms) * 0.8) cubic-bezier(0.5, 0, 0.75, 0) forwards; }
+.hxl.hmv { animation: hexMove var(--td, 420ms) cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.hxl.hrc path { animation: hexColour var(--td, 420ms) ease-out both; animation-delay: inherit; }
+@keyframes hexIn { from { transform: scale(0); opacity: 0; } 60% { opacity: 1; } to { transform: scale(1); opacity: 1; } }
+@keyframes hexOut { from { transform: scale(1); opacity: 1; } to { transform: scale(0.15); opacity: 0; } }
+@keyframes hexMove { from { transform: translate(var(--dx), var(--dy)); } to { transform: translate(0, 0); } }
+@keyframes hexColour { from { fill: var(--from); } }
+@keyframes softIn { from { opacity: 0; } }
+.cworld.anim .edge, .cworld.anim .glab, .cworld.anim .clab { animation: softIn var(--td, 420ms) ease-out var(--el, 0ms) both; }
+@media (prefers-reduced-motion: reduce) {
+  .hxl, .hxl path, .cworld.anim .edge, .cworld.anim .glab, .cworld.anim .clab { animation: none !important; }
+  .hout { display: none; }
+}

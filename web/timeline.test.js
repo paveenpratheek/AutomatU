@@ -41,3 +41,12 @@ test('the scrubber rests on the nearest map, plan version or now, and a moment s
   assert.equal(mapAtOrBefore(T.maps, '2026-11-08T13:55:22.578Z').id, 1);
   assert.equal(mapAtOrBefore(T.maps, '2026-11-08T10:00:00Z'), null);
 });
+
+test('between two maps a region pops in, pops out, slides or changes colour', async () => {
+  const { hexChanges, popDelay } = await import('./timeline.js');
+  const prev = new Map([['a', { x: 0, y: 0, col: 'red' }], ['b', { x: 10, y: 0, col: 'red' }], ['c', { x: 20, y: 0, col: 'red' }], ['d', { x: 30, y: 0, col: 'red' }]]);
+  const next = new Map([['a', { x: 0, y: 0, col: 'red' }], ['b', { x: 14, y: 3, col: 'red' }], ['c', { x: 20, y: 0, col: 'blue' }], ['e', { x: 40, y: 0, col: 'red' }]]);
+  assert.deepEqual(hexChanges(prev, next), { enter: ['e'], leave: ['d'], move: ['b'], recolour: ['c'], stay: ['a'] });
+  assert.equal(popDelay('r1', 100), popDelay('r1', 100));
+  assert.ok(popDelay('r1', 100) >= 0 && popDelay('r1', 100) < 100);
+});
