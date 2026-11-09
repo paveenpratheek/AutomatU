@@ -11,8 +11,10 @@ import re
 import subprocess
 from typing import Callable
 
-from .sources.canvas import Section, read_canvas_script, sections
+from .sources.canvas import Section, read_canvas_script, sections, totem_ids
 from .store import db
+
+_FIELDS = ("repo", "canvas", "totem", "bound_at", "totem_id")
 
 
 def repo_key(dir: str) -> str:
@@ -27,8 +29,8 @@ def repo_key(dir: str) -> str:
 
 
 def binding_of(dir: str) -> dict | None:
-    row = db().execute("SELECT repo, canvas, totem, bound_at FROM binding WHERE repo = %s", (repo_key(dir),)).fetchone()
-    return dict(zip(("repo", "canvas", "totem", "bound_at"), row)) if row else None
+    row = db().execute("SELECT repo, canvas, totem, bound_at, totem_id FROM binding WHERE repo = %s", (repo_key(dir),)).fetchone()
+    return dict(zip(_FIELDS, row)) if row else None
 
 
 def bind(dir: str, canvas: str, totem: str | None = None, replace: bool = False,
@@ -52,20 +54,77 @@ def bind(dir: str, canvas: str, totem: str | None = None, replace: bool = False,
     script = check(canvas)
     if totem and isinstance(script, str) and not any(s.totem == totem for s in sections(script)):
         raise ValueError("the canvas " + canvas + " has no totem named " + totem + " with boxes in it")
-    db().execute(
-        "INSERT INTO binding (repo, canvas, totem) VALUES (%s, %s, %s) "
-        "ON CONFLICT (repo) DO UPDATE SET canvas = EXCLUDED.canvas, totem = EXCLUDED.totem, bound_at = now()",
-        (repo, canvas, totem))
+    tid = next((i for i, n in totem_ids(script).items() if n == totem), None) if totem and isinstance(script, str) else None
+    conn = db()
+    with conn.transaction():
+        conn.execute(
+            "INSERT INTO binding (repo, canvas, totem, totem_id) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT (repo) DO UPDATE SET canvas = EXCLUDED.canvas, totem = EXCLUDED.totem, totem_id = EXCLUDED.totem_id, bound_at = now()",
+            (repo, canvas, totem, tid))
+        # Kept, never overwritten: which totem was the plan, and from when (t-25f10ce5fd).
+        conn.execute("INSERT INTO binding_log (repo, canvas, totem, totem_id) VALUES (%s, %s, %s, %s)", (repo, canvas, totem, tid))
     was = now["canvas"] + (" > " + now["totem"] if now["totem"] else "") if now else None
-    return {"repo": repo, "canvas": canvas, "totem": totem, "changed": True, "was": was}
+    return {"repo": repo, "canvas": canvas, "totem": totem, "totem_id": tid, "changed": True, "was": was}
 
 
-def plan_sections(binding: dict | None, all_sections: list[Section]) -> list[Section]:
+def plan_totem(binding: dict | None, script: str | None = None) -> str | None:
+    """The plan totem's name now: found by its lasting id when the canvas gives
+    one, so a renamed totem stays the plan (t-9e3c69e39d); else by its name."""
+    if not binding or not binding.get("totem"):
+        return None
+    if script and binding.get("totem_id"):
+        return totem_ids(script).get(binding["totem_id"], binding["totem"])
+    return binding["totem"]
+
+
+def remember_totem_id(binding: dict | None, script: str) -> None:
+    """A binding made before totems had lasting ids learns its totem's id the
+    first time the canvas gives one."""
+    if binding and binding.get("totem") and not binding.get("totem_id"):
+        tid = next((i for i, n in totem_ids(script).items() if n == binding["totem"]), None)
+        if tid:
+            db().execute("UPDATE binding SET totem_id = %s WHERE repo = %s", (tid, binding["repo"]))
+            binding["totem_id"] = tid
+
+
+def plan_sections(binding: dict | None, all_sections: list[Section], script: str | None = None) -> list[Section]:
     """The sections code may be placed under: the plan totem's boxes, or every
     box when the binding names no totem."""
-    if binding and binding.get("totem"):
-        return [s for s in all_sections if s.totem == binding["totem"]]
+    name = plan_totem(binding, script)
+    if name:
+        return [s for s in all_sections if s.totem == name]
     return all_sections
+
+
+def binding_history(repo: str) -> list[dict]:
+    """Every binding the repository has had, oldest first: canvas, plan totem
+    and from when. Bindings made before the log existed are rebuilt once from
+    the maps - each kept the boxes it was made against - and marked as rebuilt:
+    their times are the first map that shows them, so the change came at or
+    before it."""
+    cur = db().execute("SELECT canvas, totem, totem_id, at, rebuilt, note FROM binding_log WHERE repo = %s ORDER BY at, id", (repo,))
+    rows = [dict(zip(("canvas", "totem", "totem_id", "at", "rebuilt", "note"), r)) for r in cur]
+    if rows:
+        return rows
+    runs = db().execute("SELECT made_at, canvas, sections FROM map_run WHERE repo = %s ORDER BY made_at, id", (repo,)).fetchall()
+    seen, out = None, []
+    for made_at, canvas, secs in runs:
+        totems = {s.split(" > ")[0].removesuffix(" (totem)") for s in (secs or [])}
+        state = (canvas, totems.pop() if len(totems) == 1 else None)
+        if state != seen:
+            out.append({"canvas": canvas, "totem": state[1], "totem_id": None, "at": made_at, "rebuilt": True,
+                        "note": "rebuilt from the first map that shows it; the change came at or before this"})
+            seen = state
+    now = db().execute("SELECT canvas, totem, totem_id, bound_at FROM binding WHERE repo = %s", (repo,)).fetchone()
+    if now and (seen is None or (now[0], now[1]) != seen):
+        out.append({"canvas": now[0], "totem": now[1], "totem_id": now[2], "at": now[3], "rebuilt": True,
+                    "note": "rebuilt from the binding as it stands"})
+    conn = db()
+    with conn.transaction():
+        for r in out:
+            conn.execute("INSERT INTO binding_log (repo, canvas, totem, totem_id, at, rebuilt, note) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                         (repo, r["canvas"], r["totem"], r["totem_id"], r["at"], r["rebuilt"], r["note"]))
+    return out
 
 
 def repos_of(canvas: str) -> list[str]:
@@ -74,5 +133,5 @@ def repos_of(canvas: str) -> list[str]:
 
 def all_bindings() -> list[dict]:
     """Every bound repository, for the live map's watcher."""
-    cur = db().execute("SELECT repo, canvas, totem, bound_at FROM binding ORDER BY repo")
-    return [dict(zip(("repo", "canvas", "totem", "bound_at"), r)) for r in cur]
+    cur = db().execute("SELECT repo, canvas, totem, bound_at, totem_id FROM binding ORDER BY repo")
+    return [dict(zip(_FIELDS, r)) for r in cur]

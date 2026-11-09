@@ -84,7 +84,8 @@ def code_view(repo_key: str) -> dict | None:
     words = {}
     if b:
         try:
-            words = {s.address: s.words for s in plan_sections(b, sections(read_canvas_raw(b["canvas"])["script"]))}
+            script = read_canvas_raw(b["canvas"])["script"]
+            words = {s.address: s.words for s in plan_sections(b, sections(script), script)}
         except RuntimeError:
             words = {}
     repo = _repo(m["run"]["repo"])

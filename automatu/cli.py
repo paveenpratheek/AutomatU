@@ -42,7 +42,9 @@ def _sources(a) -> None:
         print("not bound to a canvas yet: automatu bind <repo> <canvas>")
         return
     canvas = read_canvas(b["canvas"])
-    plan = plan_sections(b, canvas.sections)
+    from .sources.canvas import read_canvas_script
+    script = read_canvas_script(b["canvas"])
+    plan = plan_sections(b, canvas.sections, script)
     print(f"canvas {b['canvas']}: {len(canvas.sections)} sections, {len(plan)} in the plan" + (f" ({b['totem']})" if b["totem"] else ""))
     for s in plan:
         print("  " + s.address)

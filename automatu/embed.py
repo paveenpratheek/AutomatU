@@ -43,28 +43,27 @@ def embed_texts(texts: list[str]) -> list[np.ndarray]:
 
 
 def embed_cached(items: list[tuple[str, str]]) -> tuple[dict[str, np.ndarray], int]:
-    """items: (key, text) -> (key -> vector, how many had to be made). Cached by
-    key and text hash; an empty text gets no vector."""
+    """items: (key, text) -> (key -> vector, how many had to be made). Vectors
+    are kept by the text they came from, so a box's old and new words never
+    push each other out and a text is embedded once, ever; the key only says
+    which item a vector answers. An empty text gets no vector."""
     want = {k: (t, text_hash(t)) for k, t in items if t and t.strip()}
-    keys = list(want)
-    have: dict[str, np.ndarray] = {}
-    for i in range(0, len(keys), 1000):
-        rows = db().execute("SELECT key, text_hash, vec FROM embedding WHERE model = %s AND key = ANY(%s)", (MODEL, keys[i:i + 1000]))
-        for key, h, vec in rows:
-            if want[key][1] == h:
-                have[key] = np.asarray(vec.to_numpy() if hasattr(vec, "to_numpy") else vec, dtype=np.float32)
-    missing = [k for k in keys if k not in have]
+    by_hash = {h: t for t, h in want.values()}
+    hashes = list(by_hash)
+    found: dict[str, np.ndarray] = {}
+    for i in range(0, len(hashes), 1000):
+        rows = db().execute("SELECT text_hash, vec FROM vector_cache WHERE model = %s AND text_hash = ANY(%s)", (MODEL, hashes[i:i + 1000]))
+        for h, vec in rows:
+            found[h] = np.asarray(vec.to_numpy() if hasattr(vec, "to_numpy") else vec, dtype=np.float32)
+    missing = [h for h in hashes if h not in found]
     if missing:
-        vecs = embed_texts([want[k][0] for k in missing])
+        vecs = embed_texts([by_hash[h] for h in missing])
         conn = db()
         with conn.transaction():
-            for k, v in zip(missing, vecs):
-                conn.execute(
-                    "INSERT INTO embedding (key, model, text_hash, vec) VALUES (%s, %s, %s, %s) "
-                    "ON CONFLICT (key, model) DO UPDATE SET text_hash = EXCLUDED.text_hash, vec = EXCLUDED.vec, made_at = now()",
-                    (k, MODEL, want[k][1], v))
-                have[k] = v
-    return have, len(missing)
+            for h, v in zip(missing, vecs):
+                conn.execute("INSERT INTO vector_cache (model, text_hash, vec) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (MODEL, h, v))
+                found[h] = v
+    return {k: found[h] for k, (_, h) in want.items() if h in found}, len(missing)
 
 
 def normalise(v: np.ndarray) -> np.ndarray:

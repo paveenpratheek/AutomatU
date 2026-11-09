@@ -9,10 +9,10 @@ import subprocess
 from pathlib import Path
 
 from .align import Numbers, place_regions
-from .binding import binding_of, plan_sections, repo_key
+from .binding import binding_of, plan_sections, remember_totem_id, repo_key
 from .embed import MODEL, text_hash
 from .profile import region_vectors, section_vectors
-from .sources.canvas import Canvas, Section, read_canvas
+from .sources.canvas import Canvas, Section, read_canvas_script, sections
 from .sources.gitx import read_repo
 from .store import db
 
@@ -30,7 +30,8 @@ def head_of(repo: str) -> str:
 
 
 def plan_of(binding: dict) -> list[Section]:
-    return plan_sections(binding, read_canvas(binding["canvas"]).sections)
+    script = read_canvas_script(binding["canvas"])
+    return plan_sections(binding, sections(script), script)
 
 
 def needs_map(binding: dict) -> str | None:
@@ -64,9 +65,11 @@ def make_map(dir: str, numbers: Numbers | None = None) -> dict:
     if not b:
         raise RuntimeError(key + " is not bound to a canvas: automatu bind <repo> <canvas>")
     repo = read_repo(key)
-    whole = read_canvas(b["canvas"])
-    # Only the plan totem's boxes, when the binding names one (t-ea1ec85327).
-    canvas = Canvas(name=whole.name, sections=plan_sections(b, whole.sections))
+    script = read_canvas_script(b["canvas"])
+    remember_totem_id(b, script)
+    # Only the plan totem's boxes, when the binding names one (t-ea1ec85327) -
+    # found by the totem's lasting id, so a renamed totem stays the plan.
+    canvas = Canvas(name=b["canvas"], sections=plan_sections(b, sections(script), script))
     if not canvas.sections:
         raise RuntimeError("the plan totem " + str(b["totem"]) + " has no boxes on the canvas " + b["canvas"])
     rv, made_r = region_vectors(repo, key)

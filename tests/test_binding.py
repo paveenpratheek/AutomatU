@@ -67,3 +67,14 @@ def test_a_folder_that_is_not_a_repository_is_refused(tmp_path):
     from automatu.binding import repo_key
     with pytest.raises(ValueError, match="not a git repository"):
         repo_key(str(tmp_path))
+
+
+def test_a_renamed_plan_totem_stays_the_plan_by_its_lasting_id():
+    from automatu.binding import plan_sections, plan_totem
+    from automatu.sources.canvas import sections
+    script = ('<Canvas name="C"><Totem id="tm-0000000001" name="Plan, renamed"><Area name="1. Read"/></Totem>'
+              '<Totem id="tm-0000000002" name="Rules"><Area name="Code is truth"/></Totem></Canvas>')
+    b = {"repo": "r", "canvas": "C", "totem": "Plan", "totem_id": "tm-0000000001"}
+    assert plan_totem(b, script) == "Plan, renamed"
+    assert [s.name for s in plan_sections(b, sections(script), script)] == ["1. Read"]
+    assert plan_totem({**b, "totem_id": None}, script) == "Plan", "with no id it is found by its name, as before"
