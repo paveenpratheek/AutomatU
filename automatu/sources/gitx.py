@@ -30,6 +30,7 @@ class Commit:
     date: str
     subject: str
     body: str
+    at: str = ""  # the exact commit time, ISO with its offset, for the time domain
 
     @property
     def text(self) -> str:
@@ -46,6 +47,7 @@ class Thought:
     commit: str  # the commit it was recorded at
     resulted: str  # the commit that settled it
     links: list[dict] = field(default_factory=list)
+    created: str = ""  # when it was recorded, ISO in UTC
 
 
 @dataclass
@@ -95,14 +97,14 @@ def without_trailers(message: str) -> str:
 def read_commits(dir: str) -> dict[str, Commit]:
     """Every commit reachable from HEAD: short sha -> subject and body, trailers removed."""
     out: dict[str, Commit] = {}
-    for rec in _git(dir, "log", "--format=%H%x1f%as%x1f%B%x1e").split("\x1e"):
+    for rec in _git(dir, "log", "--format=%H%x1f%as%x1f%cI%x1f%B%x1e").split("\x1e"):
         parts = rec.lstrip().split("\x1f")
-        if len(parts) < 3 or not parts[0] or not parts[2]:
+        if len(parts) < 4 or not parts[0] or not parts[3]:
             continue
-        sha, date, body = parts[0], parts[1], parts[2]
+        sha, date, at, body = parts[0], parts[1], parts[2], parts[3]
         msg = without_trailers(body)
         subject, _, rest = msg.partition("\n")
-        out[sha[:12]] = Commit(sha=sha[:12], date=date, subject=subject, body=rest.strip())
+        out[sha[:12]] = Commit(sha=sha[:12], date=date, subject=subject, body=rest.strip(), at=at)
     return out
 
 
@@ -126,7 +128,7 @@ def read_thoughts(dir: str) -> dict[str, Thought]:
                 id=j["id"], graph=graph, kind=j.get("kind"), outcome=j.get("outcome"), text=j.get("text") or "",
                 commit=((j.get("anchor") or {}).get("commit") or "")[:12],
                 resulted=((j.get("resulted_in") or {}).get("commit") or "")[:12],
-                links=links,
+                links=links, created=j.get("created") or "",
             )
     return out
 

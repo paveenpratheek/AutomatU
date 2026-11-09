@@ -42,17 +42,43 @@ def read_canvas_script(name: str) -> str:
 
 def read_canvas_raw(name: str) -> dict:
     """NoteX's answer for a canvas: its script, and whether it is an agent canvas."""
+    j = _notex_get("/api/fabrics/" + urllib.parse.quote(name, safe="") + "/script")
+    return {"script": j["script"], "agent": bool(j.get("agent"))}
+
+
+def canvas_history(name: str) -> dict:
+    """Every write NoteX kept for a canvas, newest first: time, writer and the
+    totems added, changed, renamed and deleted (t-25f10ce5fd). An empty list
+    when history was never switched on for it."""
+    try:
+        return _notex_get("/api/fabrics/" + urllib.parse.quote(name, safe="") + "/history")
+    except RuntimeError as e:
+        if "no-history" in str(e) or "never" in str(e).lower():
+            return {"history": {"on": False}, "commits": []}
+        raise
+
+
+def read_canvas_at(name: str, when: str) -> dict:
+    """The canvas's scripts as they stood at a moment (ISO time), from NoteX's
+    history - read when asked, never copied."""
+    return _notex_get("/api/fabrics/" + urllib.parse.quote(name, safe="") + "/script?when=" + urllib.parse.quote(when, safe=""))
+
+
+def totem_ids(script: str) -> dict[str, str]:
+    """Each totem's lasting id and its name, as NoteX writes them."""
+    return {t.attrs["id"]: t.attrs.get("name", "") for t in _all(parse_script(script), "Totem") if t.attrs.get("id")}
+
+
+def _notex_get(path: str) -> dict:
     try:
         with open(NOTEX_RUNTIME, encoding="utf-8") as f:
             rt = json.load(f)
     except (OSError, ValueError):
         raise RuntimeError("NoteX's engine is not running: open NoteX in ter-manager and start it.")
-    req = urllib.request.Request(rt["url"] + "/api/fabrics/" + urllib.parse.quote(name, safe="") + "/script",
-                                 headers={"x-notex-token": rt["token"]})
+    req = urllib.request.Request(rt["url"] + path, headers={"x-notex-token": rt["token"]})
     try:
         with urllib.request.urlopen(req, timeout=60) as res:
-            j = json.loads(res.read().decode("utf-8"))
-            return {"script": j["script"], "agent": bool(j.get("agent"))}
+            return json.loads(res.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
             msg = json.loads(e.read().decode("utf-8")).get("error", {}).get("message")
