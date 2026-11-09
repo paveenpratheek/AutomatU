@@ -23,10 +23,22 @@ export function regionsOf(n) {
   return [...by.values()].sort((a, b) => b.commits - a.commits || a.file.localeCompare(b.file) || a.start - b.start);
 }
 
-/* "automatu/timeline.py · drift() · lines 198-250" */
+/* "automatu/timeline.py · drift() · lines 198-250". GitX names a region by its
+   declaration line ("def drift(repo: str) -> list[dict]:"); the name in it is
+   what a person looks for. */
 export function regionLabel(r) {
-  const name = r.name && !r.name.startsWith('(') ? r.name + '()' : (r.name || 'the top of the file');
-  return `${r.file} · ${name} · lines ${r.start}–${r.end}`;
+  return `${r.file} · ${shortName(r.name)} · lines ${r.start}–${r.end}`;
+}
+
+export function shortName(name) {
+  const n = String(name || '').trim();
+  if (!n) return '(top of file)';
+  if (n.startsWith('(')) return n;
+  const m = n.match(/\b(def|class|function|const|let|var|interface|type)\s+([\w$]+)/);
+  if (m) return m[2] + (m[1] === 'def' || m[1] === 'function' ? '()' : '');
+  const call = n.match(/^([\w$.]+)\s*\(/);
+  if (call) return call[1] + '()';
+  return /^[\w$]+$/.test(n) ? n + '()' : (n.length > 48 ? n.slice(0, 47) + '…' : n);
 }
 
 /* "2 commits since 9 Nov, 16:10 IST" - from the first commit still on it. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
+import { liveCommits, regionsOf, regionLabel, shortName, sinceLine, closedLine } from './notices.js';
 
 const R = (id, start) => ({ id, file: id.split('::')[0], name: id.split('::')[1], start, end: start + 9 });
 const n = {
@@ -16,6 +16,12 @@ test('a notice lists the regions its commits moved, the most moved first, and le
   assert.deepEqual(regionsOf(n).map((r) => [r.id, r.commits]), [['t.py::drift', 2], ['t.py::follow', 1]]);
   assert.equal(regionLabel(R('t.py::drift', 198)), 't.py · drift() · lines 198–207');
   assert.equal(regionLabel({ file: 'a.py', name: '(top of file)', start: 1, end: 9 }), 'a.py · (top of file) · lines 1–9');
+  assert.equal(shortName('def timeline(repo: str) -> dict:'), 'timeline()', 'GitX names a region by its declaration line');
+  assert.equal(shortName('async def plan_at_of(repo, when):'), 'plan_at_of()');
+  assert.equal(shortName('function phasePanel(cv)'), 'phasePanel()');
+  assert.equal(shortName('class Section:'), 'Section');
+  assert.equal(shortName('export const S'), 'S');
+  assert.equal(shortName("document.addEventListener('click', (e) =>"), 'document.addEventListener()');
 });
 
 test('it says how far behind the box is, and how a closed one was closed', () => {
