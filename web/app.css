@@ -102,6 +102,31 @@ button { font: inherit; color: inherit; }
 .codesvg .cl { font-weight: 600; fill: var(--black); paint-order: stroke; stroke: rgba(255, 255, 255, 0.9); stroke-linejoin: round; pointer-events: none; }
 .codesvg .cl.dim { opacity: 0.35; }
 .repochips { position: absolute; left: 24px; right: 24px; bottom: 18px; display: flex; align-items: center; gap: 8px; }
+/* The plan in time: one band per phase, marks for versions, maps, commits, thoughts. */
+.tl { position: absolute; left: 24px; right: 24px; bottom: 64px; height: 74px; z-index: 3; background: rgba(251, 250, 247, 0.92); border: 1px solid #DDD9CE; border-radius: 10px; padding: 0 12px; cursor: default; }
+.tlnote { position: absolute; left: 14px; top: 26px; font-size: 12px; color: #5B5F66; }
+.tlbands { position: absolute; left: 12px; right: 12px; top: 6px; height: 22px; }
+.tlband { position: absolute; top: 0; height: 22px; border: 1px solid rgba(20, 20, 19, 0.18); border-radius: 6px; padding: 0 6px; font: inherit; font-size: 11px; font-weight: 600; color: #1B1D21; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; cursor: pointer; box-sizing: border-box; }
+.tlband span { overflow: hidden; text-overflow: ellipsis; display: block; line-height: 20px; }
+.tlband.on { border: 2px solid #141413; }
+.tlrow { position: absolute; left: 12px; right: 12px; height: 8px; }
+.tlrow.v { top: 32px; height: 12px; }
+.tlrow.c { top: 46px; }
+.tlrow.t { top: 55px; }
+.tlm { position: absolute; display: block; transform: translateX(-50%); }
+.tlm.mc { width: 2px; height: 8px; background: #6B4FBB; opacity: 0.75; }
+.tlm.mt { width: 4px; height: 4px; margin-top: 2px; border-radius: 50%; background: #2F5BD3; opacity: 0.55; }
+.tlm.mv { width: 9px; height: 9px; top: 1px; background: #E39B0B; transform: translateX(-50%) rotate(45deg); cursor: pointer; }
+.tlm.mm { width: 8px; height: 8px; top: 2px; background: #FFFFFF; border: 1.5px solid #141413; border-radius: 2px; cursor: pointer; box-sizing: border-box; }
+.tlm.mv:hover, .tlm.mm:hover { outline: 2px solid rgba(20, 20, 19, 0.35); }
+.tlnow { position: absolute; top: 4px; bottom: 4px; width: 2px; background: #D6336C; transform: translateX(-50%); margin-left: 12px; pointer-events: none; }
+.tlkey { position: absolute; right: 12px; top: 62px; display: none; }
+.tl:hover .tlkey, .tlkey:has(.tlback) { display: flex; }
+.tlkey { gap: 10px; align-items: center; font-size: 10px; color: #5B5F66; background: rgba(251, 250, 247, 0.95); padding: 0 4px; border-radius: 4px; top: auto; bottom: -18px; }
+.tlkey .tlm { position: relative; display: inline-block; transform: none; margin-right: 4px; vertical-align: middle; top: 0; }
+.tlkey .tlm.mv { transform: rotate(45deg); }
+.tlback { height: 22px; border-radius: 6px; border: 1px solid #141413; background: #141413; color: #FFFFFF; font: inherit; font-size: 11px; padding: 0 8px; cursor: pointer; }
+.codehead .past { font-size: 12px; font-weight: 600; color: #FFFFFF; background: #D6336C; border-radius: 6px; padding: 2px 8px; }
 .repochip { height: 36px; border-radius: 8px; padding: 0 12px; border: 1px solid #C9C4B6; background: #FFFFFF; font-size: 13px; cursor: pointer; }
 .repochip.on { background: var(--black); border-color: var(--black); color: #FFFFFF; }
 .codehead { position: absolute; left: 32px; top: 20px; right: 32px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }

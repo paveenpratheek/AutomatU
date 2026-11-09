@@ -15,6 +15,7 @@ import { buildCodeMap, hexD, regionAt } from './codelayout.js';
 import { boardHtml, picHtml, routeWires, wiresHtml, worldRect } from './board.js';
 import { addressOf, indexRelations, relationLayout } from './relate.js';
 import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
+import { scaleOf, phaseAt, ist, lastMapIn } from './timeline.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -42,6 +43,7 @@ const grad = (inner, outer) => `radial-gradient(circle at 50% 42%, ${inner} 0%, 
 export const S = {
   tab: 'main', path: ['root'], sel: null, query: '', off: {}, dir: 1, tick: 0, ox: 0, oy: 0,
   m: null, failed: '', layouts: {}, memo: {}, rel: {},
+  tl: {}, tPhase: null, tRun: null, past: {}, tMoment: null,
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
 };
 
@@ -59,7 +61,7 @@ function search() {
       for (const it of x.content) hitsOf(kw, it.name + ' ' + it.text).forEach((v, i) => { global[i] += v; });
     }
   }
-  const cv = S.code[S.repo];
+  const cv = S.tRun ? curCode() : S.code[S.repo];
   if (cv && kw.length) codeHits(cv, kw).forEach((per) => per.forEach((v, i) => { if (v) global[i]++; }));
   const on = shownAndOn(kw, global, S.off);
   return { kw, on, global, terms: kw.filter((k, i) => on[i].on).map((k) => k.key) };
@@ -330,6 +332,51 @@ function codeHits(cv, kw) {
 
 const mapOf = (cv) => cv._map || (cv._map = buildCodeMap(cv));
 
+/* The map shown on the Code tab: the newest, or an earlier one picked on the
+   timeline (t-25f10ce5fd). */
+function curCode() {
+  if (!S.tRun) return S.code[S.repo];
+  const key = S.repo + '#' + S.tRun;
+  if (!S.past[key]) {
+    S.past[key] = { loading: true };
+    getJson('/api/code?repo=' + encodeURIComponent(S.repo) + '&run=' + S.tRun)
+      .then((j) => { S.past[key] = j; })
+      .catch((e) => { S.past[key] = { failed: e.message }; })
+      .then(() => { S.cview = null; if (S.tab === 'code') render(); });
+  }
+  const v = S.past[key];
+  return v.loading || v.failed ? null : v;
+}
+
+/* A repository's timeline, read once and again whenever a new map arrives. */
+function loadTimeline(force) {
+  if (!S.repo || (S.tl[S.repo] && !force)) return;
+  const repo = S.repo;
+  S.tl[repo] = S.tl[repo] || { loading: true };
+  getJson('/api/timeline?repo=' + encodeURIComponent(repo))
+    .then((j) => {
+      S.tl[repo] = j;
+      /* ?phase=N or ?moment=<time> from a link, once the timeline is in. */
+      if (S.pendingPhase != null && j.phases[S.pendingPhase - 1]) {
+        const p = j.phases[S.pendingPhase - 1], m = lastMapIn(j.maps, p.start, p.end), latest = j.maps[j.maps.length - 1];
+        S.tPhase = S.pendingPhase - 1; S.tRun = m && latest && m.id !== latest.id ? m.id : null; S.cview = null;
+      }
+      S.pendingPhase = null;
+      if (S.pendingMoment) { S.tPhase = phaseAt(j.phases, S.pendingMoment); const w = S.pendingMoment; S.pendingMoment = null; pickMoment(w); }
+    })
+    .catch((e) => { S.tl[repo] = { failed: e.message }; })
+    .then(() => { if (S.tab === 'code') render(); });
+}
+
+function pickMoment(when) {
+  S.tMoment = { when, loading: true };
+  render();
+  getJson('/api/plan-at?repo=' + encodeURIComponent(S.repo) + '&when=' + encodeURIComponent(when))
+    .then((j) => { if (S.tMoment && S.tMoment.when === when) S.tMoment = { when, data: j }; })
+    .catch((e) => { if (S.tMoment && S.tMoment.when === when) S.tMoment = { when, failed: e.message }; })
+    .then(() => render());
+}
+
 /* Level of detail by zoom: plan boxes only, then their clusters too. */
 /* Zoom levels: plan boxes, then clusters, then single code regions. */
 const lodOf = (z) => (z < 0.6 ? 'g' : z < 1.5 ? 'c' : 'r');
@@ -343,9 +390,14 @@ function fitView(map) {
 function renderCode() {
   const stage = $('stage');
   if (!S.repos.length) { stage.innerHTML = `<div class="status">${esc(S.codeFailed || 'No map made yet. Bind a repository to its canvas: automatu bind <repo> <canvas> --totem <plan totem>')}</div>`; $('panel').innerHTML = ''; return; }
-  const cv = S.code[S.repo];
+  loadTimeline();
+  const cv = curCode();
   const chips = S.repos.map((r) => `<button type="button" class="repochip${r.repo === S.repo ? ' on' : ''}" data-repo="${esc(r.repo)}">${esc(r.repo.split('/').pop())}</button>`).join('');
-  if (!cv) { stage.innerHTML = `<div class="status">${esc(S.codeFailed || 'Reading the code map…')}</div><div class="repochips">${chips}</div>`; $('panel').innerHTML = ''; return; }
+  if (!cv) {
+    const pf = S.tRun && S.past[S.repo + '#' + S.tRun];
+    stage.innerHTML = `<div class="status">${esc(S.codeFailed || (pf && pf.failed) || (S.tRun ? 'Reading the earlier map…' : 'Reading the code map…'))}</div>${timelineHtml()}<div class="repochips">${chips}</div>`;
+    $('panel').innerHTML = ''; return;
+  }
   const map = mapOf(cv), Q = search();
   if (!S.cview || S.cview.repo !== S.repo) S.cview = { repo: S.repo, ...fitView(map) };
   const V = S.cview, lod = lodOf(V.z);
@@ -355,8 +407,8 @@ function renderCode() {
   let dots = '';
   for (const r of map.regions) {
     const g = map.groups.find((x) => x.id === r.group), age = days(r.fresh), b = age <= 7 ? 0 : age <= 21 ? 1 : 2;
-    const k = g.id + '|' + b;
-    (fills[k] = fills[k] || { col: g.col, op: (g.wait ? 0.45 : 0.9) * [1, 0.72, 0.5][b], d: [] }).d.push(hexD(r.x, r.y));
+    const gone = cv.regions[r.id] && cv.regions[r.id].gone, k = g.id + '|' + (gone ? 'gone' : b);
+    (fills[k] = fills[k] || { col: g.col, op: gone ? 0.22 : (g.wait ? 0.45 : 0.9) * [1, 0.72, 0.5][b], d: [] }).d.push(hexD(r.x, r.y));
     if (r.also.length) dots += 'M' + (r.x - 2.6).toFixed(1) + ' ' + r.y.toFixed(1) + 'a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0';
   }
   let svg = Object.values(fills).map((f) => `<path d="${f.d.join('')}" fill="${f.col}" fill-opacity="${f.op.toFixed(2)}"/>`).join('');
@@ -418,12 +470,87 @@ function renderCode() {
   stage.innerHTML = `<div class="cvp" id="cvp" data-lod="${lod}">` +
     `<div class="cworld" style="width:${map.W}px;height:${map.H}px;transform:translate(${V.tx}px, ${V.ty}px) scale(${V.z});--iz:${(1 / Math.max(0.45, Math.min(V.z, 1.6))).toFixed(3)}">` +
     `<svg width="${map.W}" height="${map.H}" aria-label="Code regions placed under the plan's boxes">${svg}</svg>${gl}${cl}</div>` +
-    `<div class="codehead"><span class="n">${esc(cv.run.repo.split('/').pop())}</span><span class="m">plan: ${esc(cv.run.canvas)} · at ${esc(cv.run.head)} · map ${cv.run.id} · ${placed} placed, ${cv.places.length - placed} waiting</span>` +
-    (S.fresh.size ? `<span class="news">${S.fresh.size} newly placed</span>` : '') + `</div>` +
+    `<div class="codehead"><span class="n">${esc(cv.run.repo.split('/').pop())}</span><span class="m">plan: ${esc(cv.run.canvas)} · at ${esc(String(cv.run.head).slice(0, 12))} · map ${cv.run.id} · ${placed} placed, ${cv.places.length - placed} waiting</span>` +
+    (S.tRun ? `<span class="past">An earlier map: made ${esc(ist(cv.run.made_at))}${cv.gone ? ` · ${cv.gone} of its regions are gone since` : ''}</span>` : '') +
+    (!S.tRun && S.fresh.size ? `<span class="news">${S.fresh.size} newly placed</span>` : '') + `</div>` + timelineHtml() +
     `<div class="repochips">${chips}<span style="flex:1"></span><span class="muted" style="font-size:12px;margin-right:8px">${links} ${links === 1 ? 'link' : 'links'} shown</span>` +
     `<button type="button" class="zb" data-zoom="fit">Fit</button><button type="button" class="zb" data-zoom="-1" aria-label="Zoom out">−</button><span class="zl">${Math.round(V.z * 100)}%</span><button type="button" class="zb" data-zoom="1" aria-label="Zoom in">+</button></div>` +
     `</div>` + netHtml(cv);
   renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed);
+}
+
+/* ------------------------------------------------------------ the plan in time */
+
+/* A strip along the Code map: one band per phase, with marks for plan
+   versions, commits, thoughts and maps (t-25f10ce5fd). A phase or a map
+   picked shows that time's map; a plan version shows the plan then. */
+function timelineHtml() {
+  const T = S.tl[S.repo];
+  if (!T || T.loading) return `<div class="tl"><span class="tlnote">Reading the timeline…</span></div>`;
+  if (T.failed) return `<div class="tl"><span class="tlnote">No timeline: ${esc(T.failed)}</span></div>`;
+  if (!T.phases.length) return '';
+  const at = scaleOf(T.phases, T.now), pc = (t) => (at(t) * 100).toFixed(3) + '%';
+  const PC = ['#E9E5DA', '#DCE6FA', '#F5DCE8', '#D5EEE8', '#F8E0CF', '#E4DDF7'];
+  const bands = T.phases.map((p, i) => {
+    const l = at(p.start), r = p.end ? at(p.end) : 1, on = S.tPhase === i;
+    return `<button type="button" class="tlband${on ? ' on' : ''}" data-tphase="${i}" title="${esc((p.totem || 'every box on ' + p.canvas) + ' · ' + ist(p.start) + ' → ' + (p.end ? ist(p.end) : 'now'))}" style="left:${(l * 100).toFixed(3)}%;width:${Math.max(0.4, (r - l) * 100).toFixed(3)}%;background:${PC[i % PC.length]}">` +
+      `<span>${i + 1}. ${esc(p.totem || 'every box')}</span></button>`;
+  }).join('');
+  const marks = (list, cls, attr, title) => list.map((x) => `<i class="tlm ${cls}" ${attr ? attr(x) : ''} title="${esc(title(x))}" style="left:${pc(x.at)}"></i>`).join('');
+  const versions = T.phases.flatMap((p) => p.versions.map((v) => ({ at: v, totem: p.totem })));
+  const cur = S.tRun ? T.maps.find((m) => m.id === S.tRun) : null;
+  return `<div class="tl" data-tl="1">` +
+    `<div class="tlbands">${bands}</div>` +
+    `<div class="tlrow c">${marks(T.commits, 'mc', null, (c) => c.sha + ' ' + ist(c.at) + '\n' + c.subject)}</div>` +
+    `<div class="tlrow t">${marks(T.thoughts, 'mt', null, (t) => t.id + ' ' + (t.kind || '') + ' ' + ist(t.at) + '\n' + t.text)}</div>` +
+    `<div class="tlrow v">${marks(versions, 'mv', (v) => `data-tver="${esc(v.at)}"`, (v) => 'Plan version ' + ist(v.at) + ' - click for the plan then')}` +
+    `${marks(T.maps, 'mm' + '', (m) => `data-tmap="${m.id}"`, (m) => 'Map ' + m.id + ' · ' + ist(m.at) + ' · ' + m.placed + ' of ' + m.regions + ' placed')}</div>` +
+    (cur ? `<i class="tlnow" style="left:${pc(cur.at)}"></i>` : '') +
+    `<div class="tlkey"><span><i class="tlm mv"></i>plan versions</span><span><i class="tlm mm"></i>maps</span><span><i class="tlm mc"></i>commits</span><span><i class="tlm mt"></i>thoughts</span>` +
+    (S.tRun || S.tPhase != null ? `<button type="button" class="tlback" data-tnow="1">Back to now</button>` : '') + `</div></div>`;
+}
+
+/* The panel for a phase, or for the plan at a moment. */
+function phasePanel(cv) {
+  const T = S.tl[S.repo];
+  if (!T || !T.phases) return '';
+  if (S.tMoment) {
+    const M = S.tMoment, D = M.data;
+    if (!D) return `<div class="k">The plan at ${esc(ist(M.when))}</div><p class="muted">${esc(M.failed || 'Reading it from the canvas history…')}</p>`;
+    const ch = D.changed, ph = D.phase;
+    const list = (title, xs, f) => (xs && xs.length ? `<h3>${title}</h3><div class="why">${xs.map((x) => `<div>${f(x)}</div>`).join('')}</div>` : '');
+    return `<div class="k">The plan at ${esc(ist(M.when))}</div><h2>${esc(ph ? ph.totem || 'Every box on ' + ph.canvas : 'No plan yet')}</h2>` +
+      `<p class="owner">${D.boxes.length} boxes${D.by ? ' · written by ' + esc(D.by) : ''}${ph ? ' · phase ' + (T.phases.findIndex((p) => p.start === ph.start) + 1) : ''}</p>` +
+      (ch ? `<h3>Changed in this version (${esc(ist(ch.at, false))})</h3>` +
+        (ch.added.length + ch.removed.length + ch.renamed.length + ch.reworded.length ? '' : '<p class="muted">Nothing in the plan totem\'s boxes changed: another totem did.</p>') +
+        list('Added', ch.added, (a) => esc(short(a))) + list('Removed', ch.removed, (a) => esc(short(a))) +
+        list('Renamed', ch.renamed, ([a, b]) => esc(short(a)) + ' → ' + esc(short(b))) + list('Reworded', ch.reworded, (a) => esc(short(a))) : '') +
+      `<h3>Its boxes then</h3><div class="why">${D.boxes.map((b) => `<div><b>${esc(b.name)}</b><div class="muted" style="white-space:pre-line">${esc(b.words.split('\n').slice(1).join('\n').slice(0, 320))}</div></div>`).join('')}</div>`;
+  }
+  const i = S.tPhase, p = T.phases[i];
+  if (!p) return '';
+  const inside = (t) => t >= p.start && (!p.end || t < p.end);
+  const commits = T.commits.filter((c) => inside(c.at)), thoughts = T.thoughts.filter((t) => inside(t.at)), maps = T.maps.filter((m) => inside(m.at));
+  return `<div class="k">Phase ${i + 1} of ${T.phases.length}</div><h2>${esc(p.totem || 'Every box on ' + p.canvas)}</h2>` +
+    `<p class="owner">${esc(ist(p.start))} → ${esc(p.end ? ist(p.end) : 'now')} · ${p.totem ? 'the plan totem on ' + esc(p.canvas) : 'no plan totem named yet: every box counted'}` +
+    (p.rebuilt ? '<br><span class="muted">Rebuilt from the maps and the canvas history: the binding then was not kept.</span>' : '') + `</p>` +
+    `<div class="stats"><div><b>${p.versions.length}</b><span>plan versions</span></div><div><b>${commits.length}</b><span>commits</span></div><div><b>${thoughts.length}</b><span>thoughts, ${p.settled} settled</span></div></div>` +
+    (cv && S.tRun ? `<p class="muted">The map shown is map ${cv.run.id}, the newest made in this phase (${esc(ist(cv.run.made_at))}).</p>` : (maps.length ? '' : '<p class="muted">No map was made in this phase.</p>')) +
+    `<h3>Plan versions</h3><div class="rows">${p.versions.map((v) => `<button type="button" class="row" data-tver="${esc(v)}"><span class="nm">${esc(ist(v))}</span><span class="mt">the plan then</span></button>`).join('')}</div>` +
+    `<h3>Commits</h3>${commits.map((c) => `<div class="npcommit"><span class="sha">${esc(c.sha)}</span> <span class="muted">${esc(ist(c.at, false))}</span><br>${esc(c.subject)}</div>`).join('') || '<p class="muted">None.</p>'}` +
+    `<h3>Thoughts recorded</h3><div class="why">${thoughts.slice(0, 40).map((t) => `<div><span style="color:${KCOL[t.kind] || '#5B5F66'};font-weight:600">${esc(t.kind || '')}</span> ${esc(t.text)} <span class="muted">${esc(t.id)}${t.settled ? ' · settled in ' + esc(t.settled) : ' · waiting'}</span></div>`).join('')}${thoughts.length > 40 ? `<div class="muted">and ${thoughts.length - 40} more</div>` : ''}</div>` +
+    `<h3>Maps</h3><div class="rows">${maps.map((m) => `<button type="button" class="row" data-tmap="${m.id}"><span class="nm">Map ${m.id}</span><span class="mt">${esc(ist(m.at, false))} · ${m.placed} of ${m.regions} placed</span></button>`).join('') || '<div class="row plain"><span class="nm muted">None</span></div>'}</div>`;
+}
+
+/* Boxes whose code moved on while their words did not (t-e8ed35d743). */
+function driftHtml(boxAddress) {
+  const T = S.tl[S.repo];
+  if (!T || !T.drift || S.tRun) return '';
+  const list = T.drift.filter((d) => !boxAddress || d.box === boxAddress);
+  if (!list.length) return '';
+  return `<h3>Code changed, plan didn't</h3><div class="why">` + list.map((d) => `<div><b>${esc(short(d.box))}</b> <span class="dis">words last changed ${esc(ist(d.words_changed))}</span>` +
+    d.commits.map((c) => `<div class="npcommit"><span class="sha">${esc(c.sha)}</span> <span class="muted">${esc(ist(c.at, false))} · made for ${esc(short(c.made_for))}</span><br>${esc(c.subject)}</div>`).join('') + `</div>`).join('') +
+    `</div><p class="muted">Its code was changed by commits made for another box after its words last changed: the box may need updating.</p>`;
 }
 
 /* ------------------------------------------------------------ a region's thoughts */
@@ -515,6 +642,8 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
   const clusterRow = (c, extra = '') => { const g = map.groups.find((x) => x.id === c.group);
     return `<button type="button" class="row" data-cluster="${c.id}"><span class="sw hexclip" style="background:${g.col};opacity:${g.wait ? 0.5 : 1}"></span><span class="nm">${esc(c.name)} <span class="muted" style="font-size:12px">${c.scope ? 'commit scope' : 'file'}</span>${extra}</span><span class="mt">${c.size}</span></button>`; };
 
+  /* A phase or a moment picked on the timeline (t-25f10ce5fd). */
+  if (S.tMoment || (S.tPhase != null && S.cc == null && S.cg == null && !S.cr)) { P.innerHTML = phasePanel(cv); return; }
   /* A code region: where it is, what it is in, the commits whose lines are in
      it, and the button to its thoughts (t-b2c1b5bfcc). */
   const r0 = S.cr ? map.regions.find((r) => r.id === S.cr) : null;
@@ -544,7 +673,7 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
     P.innerHTML = crumbsHtml() + `<div class="k">${g0.wait ? 'Code not yet placed' : 'Plan box'}</div><h2 style="color:${g0.col}">${esc(g0.name)}</h2>` +
       `<p class="owner">${g0.wait ? 'Code the plan does not explain yet. Update a box, or add one, for it to be placed.' : esc(g0.address.split(' > ')[0].replace(/ \(totem\)$/, '')) + ' · ' + esc(cv.run.canvas)}</p>` +
       `<div class="stats"><div><b>${g0.size}</b><span>regions</span></div><div><b>${g0.clusters.length}</b><span>clusters</span></div><div><b>${g0.wait ? '' : near}</b><span>${g0.wait ? '' : 'waiting near it'}</span></div></div>` +
-      trafficBox + (words ? `<h3>The plan box says</h3><p>${esc(words.split('\n').slice(1).join('\n') || words)}</p>` : '') +
+      trafficBox + driftHtml(g0.address) + (words ? `<h3>The plan box says</h3><p>${esc(words.split('\n').slice(1).join('\n') || words)}</p>` : '') +
       `<h3>Its clusters</h3><div class="rows">${g0.clusters.slice().sort((a, b) => map.clusters[b].size - map.clusters[a].size).map((id) => clusterRow(map.clusters[id])).join('')}</div>`;
     return;
   }
@@ -554,7 +683,7 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
     `<p>Each hexagon is one code region at ${esc(cv.run.head)}, under the plan box it does, judged by its commits and decisions. Inside a box, regions of one line of work - one commit scope - form a cluster. A region doing two boxes' work sits on the border between them (white dot). Zoom in for clusters; click to open a box or a cluster.</p>` +
     `<div class="legendgrid"><span><span class="sw-hex hexclip" style="background:#2F5BD3"></span>Placed under a plan box</span><span><span class="sw-hex hexclip" style="background:#8A8E95;opacity:.5"></span>Not yet placed</span><span><span class="sw-hex hexclip" style="background:#2F5BD3;opacity:.45"></span>Fainter: older code</span><span><span class="dotw"></span>Serves two boxes</span></div>` +
     `<div class="stats"><div><b>${placed}</b><span>placed</span></div><div><b>${cv.places.length - placed}</b><span>waiting</span></div><div><b>${noCode.length}</b><span>boxes with no code yet</span></div></div>` +
-    trafficBox + `<h3>Plan boxes</h3><div class="rows">` +
+    trafficBox + driftHtml() + `<h3>Plan boxes</h3><div class="rows">` +
     map.groups.map((g) => `<button type="button" class="row" data-group="${esc(g.address)}"><span class="sw hexclip" style="background:${g.col};opacity:${g.wait ? 0.5 : 1}"></span><span class="nm">${esc(g.name)}</span><span class="mt">${g.clusters.length} · ${g.size}</span></button>`).join('') +
     noCode.map((s) => `<div class="row plain"><span class="sw hexclip" style="background:#E6E2D8"></span><span class="nm">${esc(short(s))}</span><span class="mt">no code yet</span></div>`).join('') + `</div>`;
 }
@@ -563,7 +692,7 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
 let drag = null;
 function codePointerDown(e) {
   const vp = e.target.closest('#cvp');
-  if (!vp || e.button !== 0 || e.target.closest('button')) return;
+  if (!vp || e.button !== 0 || e.target.closest('button, [data-tl]')) return;
   drag = { x: e.clientX, y: e.clientY, tx: S.cview.tx, ty: S.cview.ty, moved: false };
   vp.setPointerCapture(e.pointerId);
 }
@@ -580,7 +709,7 @@ function codePointerUp(e) {
   if (!drag) return;
   const was = drag; drag = null;
   if (was.moved) return;
-  const cv = S.code[S.repo], vp = $('cvp');
+  const cv = curCode(), vp = $('cvp');
   if (!cv || !vp) return;
   const rect = vp.getBoundingClientRect(), map = mapOf(cv);
   const r = regionAt(map, (e.clientX - rect.left - S.cview.tx) / S.cview.z, (e.clientY - rect.top - S.cview.ty) / S.cview.z);
@@ -743,7 +872,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('#lightbox')) return closePic();
   const pic = e.target.closest('[data-pic]');
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
-  const t = e.target.closest('button, polygon');
+  const t = e.target.closest('button, polygon, [data-tver], [data-tmap]');
   if (!t) return;
   const d = t.dataset;
   if (d.act === 'open') return go(pathTo(S.m.reg, d.id), null, +d.x || 0, +d.y || 0, 1);
@@ -767,7 +896,23 @@ document.addEventListener('click', (e) => {
   if (d.net) return openNet(d.net);
   if (d.netclose) { S.net = null; S.netSel = null; return render(); }
   if (d.netsel !== undefined) { S.netSel = d.netsel || null; return render(); }
-  if (d.repo) { S.repo = d.repo; S.cg = null; S.cc = null; S.cr = null; S.net = null; S.fresh = new Set(); try { localStorage.setItem('automatu.repo', d.repo); } catch (_) {} loadCode(); return render(); }
+  if (d.tphase !== undefined) {
+    const T = S.tl[S.repo], i = +d.tphase, p = T && T.phases[i];
+    if (!p) return;
+    const m = lastMapIn(T.maps, p.start, p.end), latest = T.maps[T.maps.length - 1];
+    S.tPhase = i; S.tMoment = null; S.cg = null; S.cc = null; S.cr = null; S.net = null;
+    S.tRun = m && (!latest || m.id !== latest.id) ? m.id : null; S.cview = null;
+    return render();
+  }
+  if (d.tmap) {
+    const T = S.tl[S.repo], id = +d.tmap, latest = T && T.maps[T.maps.length - 1], m = T && T.maps.find((x) => x.id === id);
+    S.tRun = latest && latest.id === id ? null : id; S.tMoment = null; S.cg = null; S.cc = null; S.cr = null; S.net = null; S.cview = null;
+    if (m && T) S.tPhase = phaseAt(T.phases, m.at);
+    return render();
+  }
+  if (d.tver) { const T = S.tl[S.repo]; if (T) S.tPhase = phaseAt(T.phases, d.tver); S.cg = null; S.cc = null; S.cr = null; return pickMoment(d.tver); }
+  if (d.tnow) { S.tRun = null; S.tPhase = null; S.tMoment = null; S.cview = null; return render(); }
+  if (d.repo) { S.repo = d.repo; S.cg = null; S.cc = null; S.cr = null; S.net = null; S.tRun = null; S.tPhase = null; S.tMoment = null; S.fresh = new Set(); try { localStorage.setItem('automatu.repo', d.repo); } catch (_) {} loadCode(); return render(); }
   if (d.group !== undefined) { S.cg = S.cg === d.group ? null : d.group; S.cc = null; S.cr = null; return render(); }
   if (d.cluster !== undefined) { S.cc = +d.cluster; S.cg = null; S.cr = null; return render(); }
   if (d.pcrumb !== undefined) {
@@ -775,7 +920,7 @@ document.addEventListener('click', (e) => {
     S.cr = null; return render();
   }
   if (d.zoom) {
-    if (d.zoom === 'fit') { const cv = S.code[S.repo]; if (cv) S.cview = { repo: S.repo, ...fitView(mapOf(cv)) }; return render(); }
+    if (d.zoom === 'fit') { const cv = curCode(); if (cv) S.cview = { repo: S.repo, ...fitView(mapOf(cv)) }; return render(); }
     const { w, h } = stageSize(); return zoomAt(w / 2, h / 2, S.cview.z * (d.zoom === '1' ? 1.25 : 0.8));
   }
 });
@@ -784,7 +929,7 @@ let typing = null;
 $('term').addEventListener('input', (e) => { clearTimeout(typing); typing = setTimeout(() => { S.query = e.target.value; S.off = {}; render(); }, 180); });
 
 document.addEventListener('pointermove', (e) => {
-  const vp = e.target.closest && e.target.closest('#cvp'), tip = $('tip'), cv = S.code[S.repo];
+  const vp = e.target.closest && e.target.closest('#cvp'), tip = $('tip'), cv = S.tab === 'code' ? curCode() : null;
   if (!vp || !cv || drag || e.target.closest('button')) { tip.hidden = true; return; }
   const rect = vp.getBoundingClientRect(), map = mapOf(cv);
   const r = regionAt(map, (e.clientX - rect.left - S.cview.tx) / S.cview.z, (e.clientY - rect.top - S.cview.ty) / S.cview.z);
@@ -804,6 +949,8 @@ addEventListener('keydown', (e) => {
   if (closePic()) return;
   if (S.tab === 'code' && S.net) { S.net = null; S.netSel = null; render(); return; }
   if (S.tab === 'code' && S.cr) { S.cr = null; render(); return; }
+  if (S.tab === 'code' && S.tMoment) { S.tMoment = null; render(); return; }
+  if (S.tab === 'code' && (S.tPhase != null || S.tRun)) { S.tPhase = null; S.tRun = null; S.cview = null; render(); return; }
   if (S.tab === 'main' && S.sel) { S.sel = null; render(); }
   else if (S.tab === 'main' && S.path.length > 1) go(S.path.slice(0, -1), null, 0, 0, -1);
   else if (S.tab === 'code' && (S.cg != null || S.cc != null)) { S.cg = null; S.cc = null; render(); }
@@ -851,6 +998,8 @@ function fromLink() {
   }
   if (u.get('box')) S.pendingBox = u.get('box');
   if (u.get('region')) { S.pendingRegion = u.get('region'); S.pendingNet = u.get('net') === '1'; }
+  if (u.get('phase')) S.pendingPhase = +u.get('phase');
+  if (u.get('moment')) S.pendingMoment = u.get('moment');
   if (u.get('open') && S.m) {
     let at = 'root';
     for (const name of u.get('open').split('>').map((s) => s.trim())) {
@@ -909,6 +1058,7 @@ async function follow() {
       setTimeout(() => { S.fresh = new Set(); if (S.tab === 'code') render(); }, 6500);
     }
     S.code[r.repo] = next;
+    if (r.repo === S.repo) loadTimeline(true);
   }
   render();
 }
