@@ -142,7 +142,7 @@ def box_commits(places: list[dict], repo) -> dict[str, list[tuple[str, list]]]:
     return out
 
 
-def compute(repo_dir: str) -> tuple[list[dict], dict[str, str]]:
+def compute(repo_dir: str) -> tuple[list[dict], dict[str, str], object]:
     """Every commit a built box is behind or has in progress, with its state
     now, from the newest map and the plan's versions in the current phase."""
     from .maps import latest_map
@@ -152,11 +152,11 @@ def compute(repo_dir: str) -> tuple[list[dict], dict[str, str]]:
     key = repo_key(repo_dir)
     m = latest_map(key)
     if not m:
-        return [], {}
+        return [], {}, None
     r = _repo(key)
     phases = _phases(key, _first_commit(r))
     if not phases:
-        return [], {}
+        return [], {}, None
     ph = phases[-1]
     versions = []
     for v in _versions(ph["canvas"], ph):
@@ -183,17 +183,27 @@ def compute(repo_dir: str) -> tuple[list[dict], dict[str, str]]:
             items.append({"box": alias.get(box, box), "sha": sha[:12], "at": _utc(c.at), "subject": c.subject, "state": state,
                           "ticked_by": ticked_by(ev, c.at, commit_at),
                           "regions": [{"id": x.id, "file": x.file, "name": x.name, "start": x.start, "end": x.end} for x in regs]})
-    return sorted(items, key=lambda i: i["at"]), alias
+    def judge(box: str, at: str) -> str | None:
+        """A later tick on the box covering a commit made at this time - for a
+        commit on an open notice whose code the newest map no longer places
+        under the box (t-dca07bb8c7)."""
+        ev = events.get(alias.get(box, box))
+        return ticked_by(ev, at, commit_at) if ev else None
+
+    return sorted(items, key=lambda i: i["at"]), alias, judge
 
 
 # ------------------------------------------------------------- the rows
 
-def merge(repo: str, items: list[dict], alias: dict[str, str] | None = None) -> dict:
+def merge(repo: str, items: list[dict], alias: dict[str, str] | None = None, judge=None) -> dict:
     """Brings the rows up to date with what compute found: a commit not on any
     row for its box joins the box's open row (made when there is none); a
     commit already ticked when first seen is built work and is not recorded; a
     later tick marks it ticked, and a row whose commits are all ticked closes
-    itself. Returns how many commits were added and rows closed."""
+    itself. A commit on an open row that compute no longer reports - its code
+    moved out from under the box on a later map - is judged by the box's ticks
+    all the same, so it can never be held open for ever. Returns how many
+    commits were added and rows closed."""
     conn = db()
     added = closed = 0
     with conn.transaction():
@@ -225,6 +235,13 @@ def merge(repo: str, items: list[dict], alias: dict[str, str] | None = None) -> 
             row[2] = True
             known.add((box, it["sha"]))
             added += 1
+        seen = {(it["box"], it["sha"]) for it in items}
+        for box, row in open_row.items():
+            for c in row[1]:
+                if c["state"] != "ticked" and (box, c["sha"]) not in seen and judge:
+                    by = judge(box, c["at"])
+                    if by:
+                        c["state"], c["ticked_by"], row[2] = "ticked", by, True
         for box, (nid, cs, dirty) in open_row.items():
             if not dirty:
                 continue
@@ -255,8 +272,8 @@ def _checked(box: str, commits: list[dict]) -> list[dict]:
 def refresh(repo_dir: str) -> dict:
     """Works the notices out again for a bound repository and keeps them."""
     key = repo_key(repo_dir)
-    items, alias = compute(key)
-    return merge(key, items, alias)
+    items, alias, judge = compute(key)
+    return merge(key, items, alias, judge)
 
 
 _FIELDS = ("id", "repo", "box", "status", "opened_at", "updated_at", "commits", "closed_at", "closed_by", "closed_how", "closed_note")

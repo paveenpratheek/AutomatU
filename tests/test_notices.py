@@ -106,3 +106,14 @@ def test_agents_answer_for_repositories_in_a_log_never_overwritten(store, monkey
     assert got == {"claude-automatu-builder": ["E:/x/A"]}
     from automatu.store import db
     assert db().execute("SELECT count(*) FROM agent_log WHERE agent = 'resume-agent'").fetchone()[0] == 2, "the step-down is kept"
+
+
+def test_a_commit_whose_code_moved_out_from_under_its_box_is_still_closed_by_the_box_s_tick(store):
+    """Rewording the plan can move code to another box on the next map; the
+    commit on the open notice must still be judged by its box's ticks."""
+    from automatu.notices import merge, notices
+    R = "E:/x/M2"
+    assert merge(R, [item("B9", "d1", "progress")])["added"] == 1
+    assert merge(R, [], judge=lambda box, at: None) == {"added": 0, "closed": 0}, "no tick yet: it stays"
+    assert merge(R, [], judge=lambda box, at: sha("d2") if box == "B9" else None) == {"added": 0, "closed": 1}
+    assert notices(R)["closed"][0]["closed_how"] == "ticked"
