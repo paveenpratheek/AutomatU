@@ -17,6 +17,7 @@ from pgvector.psycopg import register_vector
 
 MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 DB_URL = os.environ.get("AUTOMATU_DB_URL", "postgresql://automatu:automatu@127.0.0.1:5433/automatu")
+CONNECT_TIMEOUT = 5  # seconds: a database that is not running is reported, not waited on
 
 _local = threading.local()
 
@@ -27,7 +28,16 @@ def db() -> psycopg.Connection:
     opens a transaction block (t-3d55dc2ad0)."""
     conn = getattr(_local, "conn", None)
     if conn is None or conn.closed:
-        conn = psycopg.connect(os.environ.get("AUTOMATU_DB_URL", DB_URL), autocommit=True)
+        url = os.environ.get("AUTOMATU_DB_URL", DB_URL)
+        try:
+            conn = psycopg.connect(url, autocommit=True, connect_timeout=CONNECT_TIMEOUT)
+        except psycopg.OperationalError as e:
+            # Said plainly instead of waiting on a server that is not there (t-7dc873ddb6).
+            where = url.rsplit("@", 1)[-1].split("/", 1)[0]
+            raise RuntimeError(
+                f"AutomatU's database is not answering at {where}. Start Docker Desktop, then run "
+                "'docker start automatu-pg' (or 'docker compose up -d' in the project folder), and try again. "
+                f"({str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__})") from e
         try:
             register_vector(conn)
         except psycopg.ProgrammingError:
