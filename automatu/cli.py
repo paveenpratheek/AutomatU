@@ -187,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("mcp", help="AutomatU's MCP server over stdio, for agents on any platform (read-only)").set_defaults(fn=_mcp)
     a = p.parse_args(argv)
     try:
-        migrate()
+        if a.fn is not _mcp:  # the MCP server reaches the store on its first question, so it starts without Docker
+            migrate()
         a.fn(a)
         return 0
     except (RuntimeError, ValueError) as e:

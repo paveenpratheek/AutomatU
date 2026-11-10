@@ -9,6 +9,7 @@ this file only names the tools and says what each is for.
 from __future__ import annotations
 
 import functools
+import threading
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -16,6 +17,22 @@ from mcp.types import ToolAnnotations
 
 from . import context
 from .models import AgentsAnswer, BoxContext, FindAnswer, NoticesAnswer, SinceAnswer
+from .store import migrate
+
+
+_ready = threading.Lock()
+_migrated = False
+
+
+def _store_ready() -> None:
+    """The store is reached on the first question, not at start: a server that
+    exited while Docker was still starting showed agents only 'Connection
+    closed'. Until the database answers, each question says how to start it."""
+    global _migrated
+    with _ready:
+        if not _migrated:
+            migrate()
+            _migrated = True
 
 
 def said(fn):
@@ -25,6 +42,7 @@ def said(fn):
     @functools.wraps(fn)
     def run(*a, **k):
         try:
+            _store_ready()
             return fn(*a, **k)
         except (ValueError, RuntimeError) as e:
             raise ToolError(str(e)) from None
