@@ -10,12 +10,37 @@ These are plain functions; the MCP server (mcp_server.py) only wraps them.
 from __future__ import annotations
 
 from .binding import all_bindings, plan_totem
-from .models import (AgentsAnswer, BoxContext, Decision, Drift, FindAnswer, FoundBox, Notice, NoticesAnswer, RelatedBox,
-                     SinceAnswer, SinceRepo, SinceWrite, StackCommit, StackRegion, TimelineCommit)
-from .sources.canvas import read_canvas_script, sections
+from .models import (AgentsAnswer, BoxContext, Decision, Drift, FindAnswer, FoundBox, Hex, MapRef, Notice, NoticesAnswer,
+                     RelatedBox, ShelfAnswer, ShelfBox, SinceAnswer, SinceRepo, SinceWrite, StackCommit, StackRegion,
+                     TimelineCommit)
+from .sources.canvas import read_canvas_script, sections, totem_ids
 
 MAX_STACK = 30      # regions listed under a box; the rest are counted
 MAX_DECISIONS = 20
+
+
+# ------------------------------------------------------------- hex locations
+
+def hex_of(canvas: str, script: str, s, ids: dict[str, str] | None = None) -> Hex:
+    """A box's lasting place (t-112509dee9): its canvas, its totem by the
+    totem's lasting id, and the box."""
+    by_name = ids if ids is not None else {name: tid for tid, name in totem_ids(script).items()}
+    tid = by_name.get(s.totem) if s.totem else None
+    return Hex(ref=f"h:{canvas}/{tid or s.totem or '-'}/{s.name}", canvas=canvas, totem_id=tid, totem=s.totem,
+               box=s.name, address=s.address)
+
+
+def maps_of(canvas: str) -> list[MapRef]:
+    """The newest map of each repository bound to this canvas."""
+    from .maps import latest_map
+    out = []
+    for b in all_bindings():
+        if b["canvas"] == canvas:
+            m = latest_map(b["repo"])
+            if m:
+                run = m["run"]
+                out.append(MapRef(repo=b["repo"], run=run["id"], made_at=_utc(run["made_at"]), head=run["head"][:7]))
+    return out
 
 
 def _utc(t) -> str:
@@ -107,8 +132,61 @@ def box_context(box: str, canvas: str | None = None) -> BoxContext:
     stack, more, decisions, behind = _stack(plans, s)
     return BoxContext(canvas=c, address=s.address, name=s.name, words=s.words, built_by=list(s.ticks),
                       plans=plans, stack=stack, stack_more=more, related=_related(c, s.address), decisions=decisions,
-                      behind=behind,
+                      behind=behind, hex=hex_of(c, script, s), maps=maps_of(c),
                       note="Read-only: AutomatU never writes the canvas; change a box through NoteX yourself.")
+
+
+def shelf(canvas: str) -> ShelfAnswer:
+    """Every box of one canvas - bound to a repository or not - with its hex
+    location, its words, the commits that built it, the code regions under it
+    with their commits, the decisions they carry, and the maps they are as of
+    (t-07b5e52886). GitX is read once per bound repository, not once per box."""
+    from .maps import latest_map
+    from .views import _repo
+    if not canvas or not canvas.strip():
+        raise ValueError("name a canvas")
+    script = read_canvas_script(canvas)
+    secs = sections(script)
+    ids = {name: tid for tid, name in totem_ids(script).items()}
+    under: dict[str, list] = {}
+    plans_of: dict[str, list[str]] = {}
+    thoughts: dict[str, object] = {}
+    for b in all_bindings():
+        if b["canvas"] != canvas:
+            continue
+        m = latest_map(b["repo"])
+        if not m:
+            continue
+        r = _repo(b["repo"])
+        thoughts.update(r.thoughts)
+        regions = {x.id: x for x in r.regions}
+        for p in m["places"]:
+            x = regions.get(p["region"])
+            for sec in p.get("sections") or []:
+                if x is not None:
+                    under.setdefault(sec, []).append((r, x))
+                    plans_of.setdefault(sec, [])
+                    if b["repo"] not in plans_of[sec]:
+                        plans_of[sec].append(b["repo"])
+    boxes = []
+    for s in secs:
+        stack, want = [], list(dict.fromkeys(c for c in s.cites if c.startswith("t-")))
+        regs = under.get(s.address, [])
+        for r, x in regs:
+            want += [t for t in x.cites + x.thoughts if t not in want]
+            if len(stack) < MAX_STACK:
+                cs = [StackCommit(sha=sha[:7], subject=r.commits[sha].subject) for sha, _ in x.commits[:3] if sha in r.commits]
+                stack.append(StackRegion(id=x.id, file=x.file, name=x.name, start=x.start, end=x.end, commits=cs))
+        decisions = []
+        for tid in want:
+            t = thoughts.get(tid)
+            if t is not None and len(decisions) < MAX_DECISIONS:
+                decisions.append(Decision(id=t.id, kind=t.kind, outcome=t.outcome, settled_in=t.resulted[:7], text=t.text[:400]))
+        boxes.append(ShelfBox(hex=hex_of(canvas, script, s, ids), name=s.name, words=s.words, built_by=list(s.ticks),
+                              plans=plans_of.get(s.address, []), regions=stack, regions_more=max(0, len(regs) - len(stack)),
+                              decisions=decisions))
+    return ShelfAnswer(canvas=canvas, maps=maps_of(canvas), boxes=boxes,
+                       note="Read-only: cite a box by its hex ref; open it again with box to see whether it still says the same.")
 
 
 def _stack(plans: list[str], s) -> tuple[list[StackRegion], int, list[Decision], Drift | None]:
@@ -177,26 +255,36 @@ def find_boxes(query: str, k: int = 8) -> FindAnswer:
     q = normalise(embed_texts([query.strip()])[0])
     hits = []
     for c in _canvases():
-        secs = sections(read_canvas_script(c))
+        script = read_canvas_script(c)
+        secs = sections(script)
+        ids = {name: tid for tid, name in totem_ids(script).items()}
         vecs, _ = section_vectors(Canvas(name=c, sections=secs))
         for s in secs:
             v = vecs.get(s.address)
             if v is not None:
-                hits.append((float(np.dot(q, v)), c, s))
+                hits.append((float(np.dot(q, v)), c, s, hex_of(c, script, s, ids)))
     hits.sort(key=lambda h: -h[0])
-    return FindAnswer(query=query, boxes=[FoundBox(canvas=c, address=s.address, name=s.name, score=round(sc, 4), words=s.words[:400])
-                                          for sc, c, s in hits[:max(1, min(k, 25))]])
+    return FindAnswer(query=query, boxes=[FoundBox(canvas=c, address=s.address, name=s.name, score=round(sc, 4), words=s.words[:400],
+                                                   hex=h) for sc, c, s, h in hits[:max(1, min(k, 25))]])
 
 
 # ------------------------------------------------------------- what changed since
 
-def since(when: str, repo: str | None = None) -> SinceAnswer:
-    """What changed since a moment: commits, writes to the plan, maps made,
-    notices opened and closed - for one repository or all."""
+def since(when: str | None = None, repo: str | None = None, map: int | None = None) -> SinceAnswer:
+    """What changed since a moment, or since a map was made: commits, writes
+    to the plan, maps made, notices opened and closed - for one repository or
+    all."""
     from .notices import _FIELDS, _row
     from .sources.canvas import canvas_history
     from .store import db
     from .views import _repo
+    if map is not None:
+        row = db().execute("SELECT made_at FROM map_run WHERE id = %s", (int(map),)).fetchone()
+        if not row:
+            raise ValueError(f"there is no map {map}")
+        when = row[0]
+    if when is None or (isinstance(when, str) and not when.strip()):
+        raise ValueError("give a moment (ISO time) or a map number")
     t = _utc(when)
     only = resolve_repo(repo)
     repos = []

@@ -16,7 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import context
-from .models import AgentsAnswer, BoxContext, FindAnswer, NoticesAnswer, SinceAnswer
+from .models import AgentsAnswer, BoxContext, FindAnswer, NoticesAnswer, ShelfAnswer, SinceAnswer
 from .store import migrate
 
 
@@ -57,8 +57,8 @@ server = MCPServer(
         "AutomatU arranges a project's plan (File Fabric canvases through NoteX), its code, commits and decisions "
         "(through GitX) and what changed in time, and tells which plan boxes the code has moved past. Ask it for "
         "context before planning or changing a box: notices (what is behind), box (one box's words, code stacked "
-        "under it, related boxes, decisions), find (boxes about a subject), since (what changed since a time), "
-        "agents (who answers for what). It only reads: write the canvas yourself through NoteX, and record "
+        "under it, related boxes, decisions), find (boxes about a subject), since (what changed since a time "
+        "or a map), shelf (every box of a canvas with its hex location, to cite), agents (who answers for what). It only reads: write the canvas yourself through NoteX, and record "
         "decisions yourself through GitX."),
 )
 
@@ -90,10 +90,20 @@ def find(query: str, k: int = 8) -> FindAnswer:
 
 @server.tool(annotations=READ_ONLY)
 @said
-def since(when: str, repo: str | None = None) -> SinceAnswer:
-    """What changed since a moment (ISO time, e.g. 2026-11-10T09:00:00Z): commits, writes to the plan,
-    maps made, notices opened and closed - to catch up on work done by other agents."""
-    return context.since(when, repo)
+def since(when: str | None = None, repo: str | None = None, map: int | None = None) -> SinceAnswer:
+    """What changed since a moment (ISO time, e.g. 2026-11-10T09:00:00Z) or since a map was made (map: its run
+    number, as a hex citation gives it): commits, writes to the plan, maps made, notices opened and closed -
+    to catch up on work done by other agents."""
+    return context.since(when, repo, map)
+
+
+@server.tool(annotations=READ_ONLY)
+@said
+def shelf(canvas: str) -> ShelfAnswer:
+    """Every box of one canvas - bound to a repository or not - each with its hex location (cite it by its
+    ref, h:<canvas>/<totem id>/<box>), its words, the commits that built it, the code regions under it with
+    their commits, the decisions they carry, and the maps the code is as of. One call per canvas."""
+    return context.shelf(canvas)
 
 
 @server.tool(annotations=READ_ONLY)

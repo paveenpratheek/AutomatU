@@ -188,6 +188,25 @@ class Decision(BaseModel):
     text: str
 
 
+class Hex(BaseModel):
+    """A box's lasting place: its canvas, its totem by the totem's lasting id,
+    and the box (t-112509dee9). `ref` is how an agent cites it."""
+    ref: str            # h:<canvas>/<totem id, or its name when it has none>/<box>
+    canvas: str
+    totem_id: str | None
+    totem: str | None
+    box: str
+    address: str
+
+
+class MapRef(BaseModel):
+    """The map a bound repository's code is as of."""
+    repo: str
+    run: int
+    made_at: str
+    head: str
+
+
 class BoxContext(BaseModel):
     """Everything AutomatU knows about one box, read where it lives."""
     canvas: str
@@ -202,6 +221,8 @@ class BoxContext(BaseModel):
     decisions: list[Decision]
     behind: Drift | None
     note: str
+    hex: Hex | None = None
+    maps: list[MapRef] = []
 
 
 class FoundBox(BaseModel):
@@ -210,6 +231,27 @@ class FoundBox(BaseModel):
     name: str
     score: float
     words: str
+    hex: Hex | None = None
+
+
+class ShelfBox(BaseModel):
+    """One box on the shelf, with all that stands with it."""
+    hex: Hex
+    name: str
+    words: str
+    built_by: list[str]
+    plans: list[str]
+    regions: list[StackRegion]
+    regions_more: int
+    decisions: list[Decision]
+
+
+class ShelfAnswer(BaseModel):
+    """Every box of one canvas with its hex location (t-07b5e52886)."""
+    canvas: str
+    maps: list[MapRef]
+    boxes: list[ShelfBox]
+    note: str
 
 
 class FindAnswer(BaseModel):
