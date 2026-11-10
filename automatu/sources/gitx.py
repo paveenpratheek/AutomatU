@@ -22,6 +22,7 @@ BRIDGE = Path(__file__).resolve().parent.parent / "gitx_bridge.mjs"
 SCAFFOLD = re.compile(r"^(\.claude|\.agents|\.agent)/|^(AGENTS|CLAUDE|GEMINI)\.md$")
 TRAILER = re.compile(r"^[A-Za-z][A-Za-z0-9-]*: \S")
 HYPHENATED_KEY = re.compile(r"^[A-Za-z0-9]+-[A-Za-z0-9-]*:")
+GITX_TRAILER = re.compile(r"^GitX-[A-Za-z-]+:\s*\S", re.I)
 
 
 @dataclass
@@ -85,12 +86,18 @@ def without_trailers(message: str) -> str:
     The last paragraph counts as trailers only when every line is "Key: value"
     and at least one key is hyphenated as real trailers are (GitX-Thoughts,
     Co-Authored-By) - so a closing line of prose such as "Note: ..." is kept
-    (t-40ab23ab7b)."""
+    (t-40ab23ab7b).
+
+    Above that block, a paragraph made only of GitX- lines goes too: some
+    commits put GitX-Builds-On in a paragraph of its own, and its hash would
+    otherwise be judged as words (t-3e4e0a3215)."""
     paras = re.split(r"\n\s*\n", (message or "").replace("\r\n", "\n").strip())
     lines = [l.strip() for l in paras[-1].split("\n") if l.strip()]
     is_block = bool(lines) and all(TRAILER.match(l) for l in lines) and any(HYPHENATED_KEY.match(l) for l in lines)
     if len(paras) > 1 and is_block:
         paras.pop()
+        while len(paras) > 1 and all(GITX_TRAILER.match(l.strip()) for l in paras[-1].split("\n") if l.strip()):
+            paras.pop()
     return "\n\n".join(paras).strip()
 
 
