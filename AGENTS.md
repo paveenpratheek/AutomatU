@@ -162,9 +162,11 @@ The full loop is in the `gitx-workflow` skill (`.claude/skills`,
 5. Stage, run `gitx_find_related`, then write the message: a
    `type(scope): what changed` subject, a body saying why (what forced it, what
    was tried, what it rules out, how it was checked - not a file list), then
-   `GitX-Builds-On: <hash>` (or `GitX-Root:`) and `GitX-Relates-To:` in their
-   own paragraph, and **last** the paragraph with `GitX-Thoughts: t-..., t-...`
-   and the `Co-Authored-By:` line.
+   **one last block with no blank line inside it**: `GitX-Builds-On: <hash>`
+   (or `GitX-Root:`), `GitX-Relates-To:`, `GitX-Thoughts: t-..., t-...`, the
+   `Co-Authored-By:` line and the `Claude-Session:` line. GitX and git read
+   trailers only from the last paragraph: a link above a blank line is lost,
+   and the commit stands unconnected in the commit graph (t-e471da5aca).
 6. GitX's Monitor is not watching this repository, so settle the thoughts by
    hand after each commit:
    `node --input-type=module -e "import { promote } from 'file:///E:/Coding%20CLI/Project%20GitX/mcp/tools/promote.js'; console.log(promote('E:/Coding CLI/Project AutomatU', '<full sha>', ['t-...']))"`
