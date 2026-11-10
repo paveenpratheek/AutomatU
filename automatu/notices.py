@@ -207,6 +207,10 @@ def merge(repo: str, items: list[dict], alias: dict[str, str] | None = None, jud
     conn = db()
     added = closed = 0
     with conn.transaction():
+        # One refresh of a repository at a time: the map server's watcher and a
+        # command run by hand could both open a row for the same box, and the
+        # loser's whole transaction was rolled back (t-3f31f11ef2).
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("automatu-notices:" + repo,))
         for old, new in (alias or {}).items():
             if old != new:
                 conn.execute("UPDATE notice SET box = %s WHERE repo = %s AND box = %s AND NOT EXISTS "
