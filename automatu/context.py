@@ -151,9 +151,13 @@ def shelf(canvas: str) -> ShelfAnswer:
     under: dict[str, list] = {}
     plans_of: dict[str, list[str]] = {}
     thoughts: dict[str, object] = {}
+    plan_totems: dict[str, list[str]] = {}   # a plan totem's name -> the repositories it plans
     for b in all_bindings():
         if b["canvas"] != canvas:
             continue
+        t = plan_totem(b, script)
+        if t:
+            plan_totems.setdefault(t, []).append(b["repo"])
         m = latest_map(b["repo"])
         if not m:
             continue
@@ -184,7 +188,7 @@ def shelf(canvas: str) -> ShelfAnswer:
                 decisions.append(Decision(id=t.id, kind=t.kind, outcome=t.outcome, settled_in=t.resulted[:7], text=t.text[:400]))
         boxes.append(ShelfBox(hex=hex_of(canvas, script, s, ids), name=s.name, words=s.words, built_by=list(s.ticks),
                               plans=plans_of.get(s.address, []), regions=stack, regions_more=max(0, len(regs) - len(stack)),
-                              decisions=decisions))
+                              decisions=decisions, in_plan=plan_totems.get(s.totem, [])))
     return ShelfAnswer(canvas=canvas, maps=maps_of(canvas), boxes=boxes,
                        note="Read-only: cite a box by its hex ref; open it again with box to see whether it still says the same.")
 

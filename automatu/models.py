@@ -244,6 +244,10 @@ class ShelfBox(BaseModel):
     regions: list[StackRegion]
     regions_more: int
     decisions: list[Decision]
+    # The repositories whose plan totem holds this box, built or not: with no
+    # ticked commit and no code under it, a box in a plan is still a plan
+    # (t-0881cc76fe).
+    in_plan: list[str] = []
 
 
 class ShelfAnswer(BaseModel):
