@@ -96,6 +96,69 @@ class AgentsAnswer(BaseModel):
     agents: list[Agent]
 
 
+# ------------------------------------------------------------- the desks, as their cards
+
+class DeskSkill(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    examples: list[str] = []
+
+
+class DeskCard(BaseModel):
+    """What a desk's A2A Agent Card says it is and does."""
+    name: str
+    description: str = ""
+    version: str = ""
+    skills: list[DeskSkill] = []
+
+
+class DeskStep(BaseModel):
+    step: str
+    actor: str           # code, the agent or the user
+    status: str
+    started_at: str = ""
+
+
+class DeskRun(BaseModel):
+    task_id: str
+    job: str
+    state: str
+    work: str | None = None
+    started_at: str = ""
+    step: DeskStep | None = None
+
+
+class DeskAsk(BaseModel):
+    """A permission ask or a question waiting on the user."""
+    task_id: str
+    kind: str
+    text: str
+    job: str | None = None
+    asked_at: str = ""
+
+
+class DeskLive(BaseModel):
+    agent: str | None = None
+    model: str | None = None
+    runs: list[DeskRun] = []
+    waiting: list[DeskAsk] = []
+
+
+class Desk(BaseModel):
+    url: str
+    up: bool
+    card: DeskCard | None = None
+    live: DeskLive | None = None
+    note: str = ""
+
+
+class DesksAnswer(BaseModel):
+    """/api/desks: each desk as its Agent Card, with what it is doing and what
+    waits on the user (box 22, t-2b6d9b3541). Read only: AutomatU answers nothing."""
+    desks: list[Desk]
+
+
 # ------------------------------------------------------------- the timeline
 
 class Phase(BaseModel):

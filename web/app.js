@@ -17,6 +17,7 @@ import { addressOf, indexRelations, relationLayout } from './relate.js';
 import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
 import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore, hexChanges, popDelay } from './timeline.js';
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
+import { desksHtml } from './desks.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -935,11 +936,13 @@ function renderChrome() {
   $('chips').innerHTML = CHIPS.map((c) => `<button type="button" class="pill${S.query.trim().toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-chip="${esc(c)}">${esc(c)}</button>`).join('');
   const target = S.m ? boardTarget() : null;
   $('tabs').innerHTML = [['Main', 'main', 'The hexagon map: find things'], ['Code', 'code', 'The code map: the plan and its code'],
-    ['Canvas', 'canvas', target ? 'Open the ' + S.m.reg[target].name + ' canvas, as CanvasX shows it' : 'Pick a canvas on the map first']].map(([l, k, why]) =>
+    ['Canvas', 'canvas', target ? 'Open the ' + S.m.reg[target].name + ' canvas, as CanvasX shows it' : 'Pick a canvas on the map first'],
+    ['Agents', 'agents', 'Each desk as its Agent Card: what it is doing, and what waits on you']].map(([l, k, why]) =>
     `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}" title="${esc(why)}"${k === 'canvas' && !target ? ' disabled' : ''}>${l}</button>`).join('');
   let crumbs;
   if (S.tab === 'main' && S.m) crumbs = S.path.filter((id) => S.m.reg[id]).map((id, i, arr) => ({ name: S.m.reg[id].name, go: i < arr.length - 1 ? 'path:' + i : '' }));
   else if (S.tab === 'canvas' && S.m && S.bcanvas) crumbs = [{ name: 'Map', go: 'path:0' }, { name: S.m.reg[S.bcanvas].name, go: 'canvas:' + S.bcanvas }, { name: 'Open canvas', go: '' }];
+  else if (S.tab === 'agents') crumbs = [{ name: 'Agents', go: '' }];
   else crumbs = [{ name: 'Code map', go: '' }].concat(S.repo ? [{ name: S.repo.split('/').pop(), go: '' }] : []);
   $('crumbs').innerHTML = crumbs.map((c, i) => (i ? '<span class="arrow" aria-hidden="true">›</span>' : '') + `<button type="button" class="crumb${c.go ? '' : ' last'}" data-crumb="${c.go}">${esc(c.name)}</button>`).join('');
   const shown = Q.kw.map((k, i) => ({ k, i })).filter(({ i }) => Q.on[i].shown);
@@ -1011,10 +1014,24 @@ function openNoticeRegion(repo, rid) {
 
 export function render() {
   renderChrome();
-  $('panel').hidden = S.tab === 'canvas' || (S.tab === 'code' && !!S.net);
+  $('panel').hidden = S.tab === 'canvas' || S.tab === 'agents' || (S.tab === 'code' && !!S.net);
   if (S.tab === 'code') renderCode();
   else if (S.tab === 'canvas') renderBoard();
+  else if (S.tab === 'agents') renderDesks();
   else renderMain();
+}
+
+/* ------------------------------------------------------------ the agents, as their cards */
+
+/* The Agents tab (box 22, t-2b6d9b3541): read from /api/desks, which reads each
+   desk's Agent Card and what it is doing; refreshed while the tab is open. */
+function renderDesks() {
+  $('stage').innerHTML = S.desks ? desksHtml(S.desks) : '<div class="status">Looking for the desks…</div>';
+}
+
+function loadDesks() {
+  return fetch('/api/desks').then((r) => r.json()).then((j) => { S.desks = j; if (S.tab === 'agents') renderDesks(); })
+    .catch(() => { S.desks = { desks: [] }; if (S.tab === 'agents') renderDesks(); });
 }
 
 /* ------------------------------------------------------------ the open canvas */
@@ -1139,7 +1156,7 @@ document.addEventListener('click', (e) => {
   if (d.tab) {
     if (S.tab !== d.tab) {
       if (d.tab === 'canvas') { const t = boardTarget(); if (t !== S.bcanvas) S.bview = null; S.bcanvas = t; }
-      S.tab = d.tab; if (d.tab === 'code') loadCode(); render();
+      S.tab = d.tab; if (d.tab === 'code') loadCode(); if (d.tab === 'agents') loadDesks(); render();
     }
     return;
   }
@@ -1281,7 +1298,7 @@ async function start() {
   render();
   if (S.repo) loadCode();
   loadNotices();
-  setInterval(() => { follow().catch(() => {}); loadNotices(); }, 4000);
+  setInterval(() => { follow().catch(() => {}); loadNotices(); if (S.tab === 'agents') loadDesks(); }, 4000);
 }
 
 /* The live map (t-5b98c27370): the server makes a new map on every commit or

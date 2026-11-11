@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import AgentsAnswer, NoticesAnswer, Timeline
+from .models import AgentsAnswer, DesksAnswer, NoticesAnswer, Timeline
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -149,6 +149,14 @@ def agents_of() -> dict:
     """The agents that answer for each repository, for the Agents button (t-268908a2b1)."""
     from .notices import agents
     return {"agents": agents()}
+
+
+@app.get("/api/desks", response_model=DesksAnswer)
+async def desks_of() -> dict:
+    """Each Work Desks desk as its Agent Card, with the job and step it is on
+    and what waits on the user, for the Agents tab (box 22, t-2b6d9b3541)."""
+    from .desks import desks
+    return {"desks": await desks()}
 
 
 @app.middleware("http")
