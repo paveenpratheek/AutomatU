@@ -38,7 +38,7 @@ def test_a_repository_is_named_by_its_folder_or_path(monkeypatch):
 def test_every_tool_of_the_mcp_server_only_reads_and_answers_in_a_typed_shape():
     from automatu.mcp_server import server
     tools = asyncio.run(server.list_tools())
-    assert sorted(t.name for t in tools) == ["agents", "box", "find", "notices", "shelf", "since"]
+    assert sorted(t.name for t in tools) == ["agents", "box", "canvases", "find", "notices", "shelf", "since"]
     for t in tools:
         assert t.annotations.read_only_hint and not t.annotations.destructive_hint, t.name
         assert t.output_schema, f"{t.name} answers in a typed shape"
@@ -57,6 +57,8 @@ def test_the_shelf_gives_every_box_of_any_canvas_with_its_hex(monkeypatch):
     script = '<Canvas name="R"><Totem id="tm-r1" name="Skills"><Area name="Python"><Note name="n">Built APIs (t-0123456789)</Note></Area><Area name="SQL"><Note name="n">joins</Note></Area></Totem></Canvas>'
     monkeypatch.setattr(context, "read_canvas_script", lambda c: script)
     monkeypatch.setattr(context, "all_bindings", lambda: [])  # a canvas no repository is bound to
+    import automatu.canvases as canvases
+    monkeypatch.setattr(canvases, "is_added", lambda c: c == "R")  # the user added it
     a = context.shelf("R")
     assert [b.hex.ref for b in a.boxes] == ["h:R/tm-r1/Python", "h:R/tm-r1/SQL"]
     assert a.maps == [] and all(b.regions == [] and b.plans == [] for b in a.boxes)
@@ -79,3 +81,14 @@ def test_since_a_map_needs_a_map_that_exists(monkeypatch):
         context.since(map=7)
     with pytest.raises(ValueError, match="a moment"):
         context.since()
+
+
+def test_a_canvas_the_user_did_not_add_is_not_served(monkeypatch):
+    import automatu.canvases as canvases
+    monkeypatch.setattr(canvases, "is_added", lambda c: False)
+    monkeypatch.setattr(canvases, "added", lambda: ["AutomatU"])
+    monkeypatch.setattr(context, "read_canvas_script", lambda c: pytest.fail("a canvas not added is never read"))
+    with pytest.raises(ValueError, match="'Secret' is not in AutomatU.*in AutomatU now: AutomatU"):
+        context.shelf("Secret")
+    with pytest.raises(ValueError, match="not in AutomatU"):
+        context.box_context("1", canvas="Secret")

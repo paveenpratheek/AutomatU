@@ -1,7 +1,7 @@
 """The map view's server, a FastAPI app: the page in web/, and the newest map
 snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e), but for
 what the user does on AutomatU's own page, and only from it: an Interrupt passed
-on to a desk (t-5bb672b723), and the desks' workflows and grants the user
+on to a desk (t-5bb672b723), the canvases the user adds and removes (t-4fb5a8ff46), and the desks' workflows and grants the user
 arranges, kept in AutomatU's store once the desk accepts them (t-d966145acd); with the
 watcher on it also makes new maps as the work happens (t-3e56993cc4). The
 notices, agents and timeline answers are typed, and their schema is served at
@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import (AgentsAnswer, ArrangementSave, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
+from .models import (AgentsAnswer, ArrangementSave, CanvasAsk, CanvasChange, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
                      InterruptAsk, NoticesAnswer, SaveAnswer, Timeline)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -41,19 +41,56 @@ def map_of(repo: str) -> dict:
 
 @app.get("/api/canvases")
 def canvases() -> dict:
-    """The bound canvases, for the Main map (t-87c7947c95)."""
+    """The canvases the user added, for the Main map (t-87c7947c95, box 24)."""
     from .views import canvases_view
     return canvases_view()
 
 
+@app.get("/api/canvases/available")
+def canvases_available() -> dict:
+    """Every canvas NoteX has, each saying whether it is in AutomatU, for the
+    Add canvas sheet (box 24, t-4fb5a8ff46)."""
+    from .canvases import listing
+    try:
+        return listing()
+    except RuntimeError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post("/api/canvases/add", response_model=CanvasChange)
+def canvases_add(ask: CanvasAsk, request: Request) -> dict:
+    """The user adds a canvas from CanvasX, through NoteX - from this page only."""
+    _own_page(request, "add a canvas")
+    from .canvases import add
+    try:
+        return add(ask.canvas)
+    except (ValueError, RuntimeError) as e:
+        return {"canvas": ask.canvas, "changed": False, "problem": str(e)}
+
+
+@app.post("/api/canvases/remove", response_model=CanvasChange)
+def canvases_remove(ask: CanvasAsk, request: Request) -> dict:
+    """The user takes a canvas out of AutomatU - from this page only."""
+    _own_page(request, "remove a canvas")
+    from .canvases import remove
+    try:
+        return remove(ask.canvas)
+    except ValueError as e:
+        return {"canvas": ask.canvas, "changed": False, "problem": str(e)}
+
+
+def _added(canvas: str) -> None:
+    from .canvases import is_added
+    if not is_added(canvas):
+        raise HTTPException(404, "not a canvas in AutomatU")
+
+
 @app.get("/api/canvas-image")
 def canvas_image_of(canvas: str, id: str) -> Response:
-    """One image on a bound canvas, read where File Fabric keeps it (t-94fa849705).
-    Only bound canvases serve images (t-8a3b5b9f93)."""
-    from .binding import all_bindings
+    """One image on an added canvas, read where File Fabric keeps it (t-94fa849705).
+    Only canvases in AutomatU serve images (t-8a3b5b9f93)."""
     from .sources.canvas import canvas_image
-    if canvas not in {b["canvas"] for b in all_bindings()}:
-        raise HTTPException(404, "not a canvas bound to a repository")
+    _added(canvas)
     try:
         got = canvas_image(canvas, id)
     except (OSError, ValueError, RuntimeError) as e:
@@ -65,11 +102,9 @@ def canvas_image_of(canvas: str, id: str) -> Response:
 
 @app.get("/api/relations")
 def relations_of(canvas: str) -> dict:
-    """Which boxes on a bound canvas are related, and why (t-5d0347338f)."""
-    from .binding import all_bindings
+    """Which boxes on an added canvas are related, and why (t-5d0347338f)."""
     from .relations import relations
-    if canvas not in {b["canvas"] for b in all_bindings()}:
-        raise HTTPException(404, "not a canvas bound to a repository")
+    _added(canvas)
     try:
         return relations(canvas)
     except RuntimeError as e:

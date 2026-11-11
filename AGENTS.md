@@ -191,6 +191,13 @@ running. Python 3.12 in `.venv`.
 Settings: `AUTOMATU_DB_URL`, `OLLAMA_URL`, `AUTOMATU_EMBED_MODEL`, `GITX_DIR`,
 `NOTEX_RUNTIME`.
 
+**Only the canvases the user adds are in AutomatU** (box 24, t-4fb5a8ff46): the
+Canvases button on the page lists NoteX's canvases to add or remove; the list
+is kept in the store (`added_canvas`, every change in `added_canvas_log`).
+The Main map, `find`, `box`, `shelf` and the MCP `canvases` tool cover exactly
+those, bound to a repository or not; Knowledge Desk indexes the same list.
+Binding adds its canvas, and a bound canvas stays while the binding does.
+
 Built features (each explained on the canvas in **AutomatU: how it works**):
 binding a repository to its canvas and plan totem; reading GitX through a Node
 bridge (`automatu/gitx_bridge.mjs`, never code text); reading the canvas
@@ -198,8 +205,9 @@ through NoteX; placing code under the plan (local embeddings, a clear-match
 rule, Venn sharing); calibration and self-tests; the map view (Main, Code,
 Canvas tabs, traffic search, pictures); the live map; related neighbours
 (boxes arranged by relation, with why). The map view's API: `/api/repos`,
-`/api/map`, `/api/canvases`, `/api/code`, `/api/relations`,
-`/api/canvas-image`.
+`/api/map`, `/api/canvases`, `/api/canvases/available`, `/api/canvases/add`,
+`/api/canvases/remove` (the last two from the page only), `/api/code`,
+`/api/relations`, `/api/canvas-image`.
 
 ---
 

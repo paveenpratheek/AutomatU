@@ -2,7 +2,7 @@
  * The AutomatU map view, with the SearchX prototype's look and layout
  * (t-87c7947c95), rebuilt as plain modules (t-9df524dad9).
  *
- * Main: the canvases bound to a repository as hexagons - click in from canvas
+ * Main: the canvases the user added (box 24) as hexagons - click in from canvas
  * to totem to sub-totem to box; a box with content opens in the panel.
  * Code: a repository's newest map - each plan box a cluster, its placed code
  * as hexagons, a region in several boxes where their clusters meet; boxes no
@@ -18,6 +18,7 @@ import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
 import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore, hexChanges, popDelay } from './timeline.js';
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
+import { canvasListHtml } from './canvaslist.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
 
 const $ = (id) => document.getElementById(id);
@@ -49,6 +50,7 @@ export const S = {
   tl: {}, tPhase: null, tRun: null, past: {}, tMoment: null,
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
   notices: null, agents: null, drop: null, noticesFailed: '',
+  canvasList: null, canvasBusy: '', canvasSaid: '', canvasFailed: '',
 };
 
 function stageSize() { const r = $('stage').getBoundingClientRect(); return { w: Math.max(320, r.width), h: Math.max(320, r.height) }; }
@@ -304,7 +306,7 @@ function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
   }).join('');
   P.innerHTML = `<div class="k">${esc(kind)}</div><h2>${esc(title)}</h2>` +
     (owner ? `<p class="owner">${esc(owner)}</p>` : '') +
-    (view === 'root' ? '<p>Each canvas bound to a repository is a hexagon. Inside, each totem sits with its sub-totems around it: related ones touch, unrelated ones keep one hexagon of space, and different topics sit one hexagon apart.</p>' : (node.text ? `<p>${esc(node.text)}</p>` : '')) +
+    (view === 'root' ? '<p>Each canvas you added is a hexagon - add or remove one with Canvases, at the top. Inside, each totem sits with its sub-totems around it: related ones touch, unrelated ones keep one hexagon of space, and different topics sit one hexagon apart.</p>' : (node.text ? `<p>${esc(node.text)}</p>` : '')) +
     `<div class="stats">${stats.map(([n, l]) => `<div><b>${n}</b><span>${esc(l)}</span></div>`).join('')}</div>` +
     traffic + own + arrangedHtml(reg, arranged, R) + (rows ? `<h3>Inside</h3><div class="rows">${rows}</div>` : '');
 }
@@ -973,11 +975,12 @@ function renderTop() {
   bell.classList.toggle('ring', count > 0);
   bell.setAttribute('aria-label', count ? [boxes ? `${boxes} box${boxes === 1 ? '' : 'es'} the code has moved past` : '',
     fresh ? `${fresh} agent job${fresh === 1 ? '' : 's'} waiting, failed or finished` : ''].filter(Boolean).join('; ') : 'Notices: nothing new');
-  for (const [id, k] of [['bellbtn', 'bell'], ['agentsbtn', 'agents']]) { $(id).setAttribute('aria-expanded', String(S.drop === k)); $(id).classList.toggle('on', S.drop === k); }
+  for (const [id, k] of [['bellbtn', 'bell'], ['agentsbtn', 'agents'], ['canvasesbtn', 'canvases']]) { $(id).setAttribute('aria-expanded', String(S.drop === k)); $(id).classList.toggle('on', S.drop === k); }
   const D = $('drop');
   D.hidden = !S.drop;
   if (!S.drop) return;
-  const html = S.drop === 'bell' ? bellHtml() : agentsHtml();
+  const html = S.drop === 'bell' ? bellHtml() : S.drop === 'canvases'
+    ? canvasListHtml(S.canvasList, { busy: S.canvasBusy, said: S.canvasSaid, failed: S.canvasFailed }) : agentsHtml();
   if (D.dataset.html !== html) { D.innerHTML = html; D.dataset.html = html; }
   // Shown in the open bell: seen. They stay listed, no longer marked new or counted.
   if (S.drop === 'bell' && fresh) { saveSeen([...seen, ...S.deskEvents.map((e) => e.key)]); b.hidden = !boxes; b.textContent = String(boxes); bell.classList.toggle('ring', boxes > 0); }
@@ -1008,6 +1011,31 @@ function agentsHtml() {
     g.repos.map((r) => `<div class="ag"><span class="nm">${esc(r.name)}</span><span class="mt">since ${esc(ist(r.since))} · ${r.behind ? `<b class="hot">${r.behind} behind</b>` : 'none behind'}${r.progress ? ` · ${r.progress} in progress` : ''}</span></div>`).join('') + `</div>`).join('')
     : '<p class="muted">No agent answers for a repository yet.</p>') +
     `<p class="muted foot">An agent registers with<br><code>automatu agent register REPO --agent NAME</code></p>`;
+}
+
+/* The Canvases sheet (box 24): NoteX's canvases, each added or not. */
+function loadCanvasList() {
+  getJson('/api/canvases/available')
+    .then((j) => { S.canvasList = j; S.canvasFailed = ''; })
+    .catch((e) => { S.canvasFailed = e.message; })
+    .then(renderTop);
+}
+
+/* Add or remove one canvas; the Main map is read again so it shows at once. */
+function changeCanvas(b) {
+  const add = b.dataset.canvasAdd != null, name = add ? b.dataset.canvasAdd : b.dataset.canvasRemove;
+  if (!add && !window.confirm(`Take ${name} out of AutomatU? It leaves the map, search and Knowledge Desk's index; the canvas itself is not touched.`)) return;
+  S.canvasBusy = name; S.canvasSaid = ''; renderTop();
+  post(add ? '/api/canvases/add' : '/api/canvases/remove', { canvas: name })
+    .then((j) => { S.canvasSaid = j.problem ? `Not ${add ? 'added' : 'removed'}: ${j.problem}` : `${name} ${add ? 'added' : 'removed'}.`; return j.changed ? reloadCanvases() : null; })
+    .catch(() => { S.canvasSaid = 'AutomatU could not be reached.'; })
+    .then(() => { S.canvasBusy = ''; loadCanvasList(); });
+}
+
+async function reloadCanvases() {
+  const cv = await getJson('/api/canvases');
+  S.m = model(cv.canvases); S.layouts = {}; S.memo = {}; S.path = ['root']; S.sel = null;
+  render();
 }
 
 /* A region named on a notice, opened on the Code map. */
@@ -1295,7 +1323,13 @@ function closePic() { const lb = $('lightbox'); if (lb) { lb.remove(); return tr
 document.addEventListener('click', (e) => {
   if (e.target.closest('#lightbox')) return closePic();
   const dropBtn = e.target.closest('[data-drop]');
-  if (dropBtn) { S.drop = S.drop === dropBtn.dataset.drop ? null : dropBtn.dataset.drop; if (S.drop) loadNotices(); return renderTop(); }
+  if (dropBtn) {
+    S.drop = S.drop === dropBtn.dataset.drop ? null : dropBtn.dataset.drop;
+    if (S.drop === 'canvases') { S.canvasSaid = ''; loadCanvasList(); } else if (S.drop) loadNotices();
+    return renderTop();
+  }
+  const cvb = e.target.closest('[data-canvas-add], [data-canvas-remove]');
+  if (cvb) return changeCanvas(cvb);
   const nreg = e.target.closest('[data-nreg]');
   if (nreg) return openNoticeRegion(nreg.dataset.nrepo, nreg.dataset.nreg);
   if (S.drop && !e.target.closest('#drop')) { S.drop = null; renderTop(); }
@@ -1383,7 +1417,7 @@ document.addEventListener('pointermove', (e) => {
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (closePic()) return;
-  if (S.drop) { const k = S.drop; S.drop = null; renderTop(); $(k === 'bell' ? 'bellbtn' : 'agentsbtn').focus(); return; }
+  if (S.drop) { const k = S.drop; S.drop = null; renderTop(); $({ bell: 'bellbtn', canvases: 'canvasesbtn' }[k] || 'agentsbtn').focus(); return; }
   if (S.tab === 'code' && S.net) { S.net = null; S.netSel = null; render(); return; }
   if (S.tab === 'code' && S.cr) { S.cr = null; render(); return; }
   if (S.tab === 'code' && S.tMoment) { S.tMoment = null; render(); return; }

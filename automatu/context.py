@@ -10,7 +10,7 @@ These are plain functions; the MCP server (mcp_server.py) only wraps them.
 from __future__ import annotations
 
 from .binding import all_bindings, plan_totem
-from .models import (AgentsAnswer, BoxContext, Decision, Drift, FindAnswer, FoundBox, Hex, MapRef, Notice, NoticesAnswer,
+from .models import (AddedCanvas, AgentsAnswer, BoxContext, CanvasesAnswer, Decision, Drift, FindAnswer, FoundBox, Hex, MapRef, Notice, NoticesAnswer,
                      RelatedBox, ShelfAnswer, ShelfBox, SinceAnswer, SinceRepo, SinceWrite, StackCommit, StackRegion,
                      TimelineCommit)
 from .sources.canvas import read_canvas_script, sections, totem_ids
@@ -60,7 +60,28 @@ def resolve_repo(name: str | None) -> str | None:
 
 
 def _canvases() -> list[str]:
-    return sorted({b["canvas"] for b in all_bindings()})
+    """The canvases the user added - the only ones AutomatU answers about (box 24, t-4fb5a8ff46)."""
+    from .canvases import added
+    return added()
+
+
+def _in_automatu(canvas: str) -> None:
+    from .canvases import is_added
+    if not is_added(canvas):
+        raise ValueError(f"the canvas {canvas!r} is not in AutomatU: the user adds it from the Main page "
+                         "(Add canvas); in AutomatU now: " + (", ".join(_canvases()) or "none"))
+
+
+def canvases_answer() -> CanvasesAnswer:
+    """The canvases the user added, each with when and the repositories bound
+    to it - what Knowledge Desk indexes (box 24)."""
+    from .store import db
+    rows = db().execute("SELECT canvas, added_at FROM added_canvas ORDER BY canvas").fetchall()
+    bound: dict[str, list[str]] = {}
+    for b in all_bindings():
+        bound.setdefault(b["canvas"], []).append(b["repo"])
+    return CanvasesAnswer(canvases=[AddedCanvas(canvas=c, added_at=_utc(at), repos=bound.get(c, [])) for c, at in rows],
+                          note="Only these canvases are in AutomatU; the user adds and removes them on its Main page.")
 
 
 # ------------------------------------------------------------- notices and agents
@@ -114,10 +135,17 @@ def box_context(box: str, canvas: str | None = None) -> BoxContext:
     """Everything about one box: its words, the code stacked under it, its
     related boxes and why, the decisions its words and code carry, and
     whether it is behind."""
+    if canvas:
+        _in_automatu(canvas)
     canvases = [canvas] if canvas else _canvases()
     found = []
     for c in canvases:
-        script = read_canvas_script(c)
+        try:
+            script = read_canvas_script(c)
+        except RuntimeError:
+            if canvas:
+                raise
+            continue   # an added canvas NoteX cannot read now does not stop the others
         try:
             found.append((c, script, match_box(sections(script), box)))
         except ValueError as e:
@@ -145,6 +173,7 @@ def shelf(canvas: str) -> ShelfAnswer:
     from .views import _repo
     if not canvas or not canvas.strip():
         raise ValueError("name a canvas")
+    _in_automatu(canvas)
     script = read_canvas_script(canvas)
     secs = sections(script)
     ids = {name: tid for tid, name in totem_ids(script).items()}
@@ -247,7 +276,7 @@ def _related(canvas: str, address: str) -> list[RelatedBox]:
 # ------------------------------------------------------------- the boxes about a subject
 
 def find_boxes(query: str, k: int = 8) -> FindAnswer:
-    """The boxes about a subject, by meaning, across every bound canvas -
+    """The boxes about a subject, by meaning, across every canvas the user added -
     the same local embeddings alignment uses."""
     import numpy as np
 
@@ -259,7 +288,10 @@ def find_boxes(query: str, k: int = 8) -> FindAnswer:
     q = normalise(embed_texts([query.strip()])[0])
     hits = []
     for c in _canvases():
-        script = read_canvas_script(c)
+        try:
+            script = read_canvas_script(c)
+        except RuntimeError:
+            continue
         secs = sections(script)
         ids = {name: tid for tid, name in totem_ids(script).items()}
         vecs, _ = section_vectors(Canvas(name=c, sections=secs))

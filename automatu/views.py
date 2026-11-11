@@ -1,7 +1,7 @@
 """What the map view's page reads, put together from the sources when asked
 (t-87c7947c95) - nothing here is stored.
 
-canvases_view: every canvas bound to a repository, as a tree of totems,
+canvases_view: every canvas the user added, as a tree of totems,
 sub-totems, boxes and their notes, read live from NoteX.
 
 code_view: a repository's newest map, with what the traffic search reads for
@@ -38,9 +38,12 @@ def _repo(key: str) -> Repo:
 
 
 def canvases_view() -> dict:
-    by_canvas: dict[str, list[dict]] = {}
+    """Every canvas the user added (box 24), bound to a repository or not."""
+    from .canvases import added
+    by_canvas: dict[str, list[dict]] = {c: [] for c in added()}
     for b in all_bindings():
-        by_canvas.setdefault(b["canvas"], []).append({"repo": b["repo"], "name": b["repo"].split("/")[-1], "totem": b["totem"]})
+        if b["canvas"] in by_canvas:
+            by_canvas[b["canvas"]].append({"repo": b["repo"], "name": b["repo"].split("/")[-1], "totem": b["totem"]})
     out = []
     for name, repos in sorted(by_canvas.items()):
         try:

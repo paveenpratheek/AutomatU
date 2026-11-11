@@ -348,6 +348,15 @@ button { font: inherit; color: inherit; }
 .drop code { font-family: var(--mono); font-size: 11.5px; background: var(--paper-3); padding: 1px 5px; border-radius: 4px; }
 @media (max-width: 720px) { .drop { top: auto; right: 16px; left: 16px; width: auto; } }
 .drop .foot code { display: block; width: fit-content; margin-top: 4px; padding: 3px 6px; }
+.drop .cv { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line-3); }
+.drop .cv:first-of-type { border-top: 0; }
+.drop .cvn { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.drop .cvn b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drop .cv:not(.on) b { color: var(--ink-3); font-weight: 500; }
+.drop .cbtn { flex: none; min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--card); font: inherit; font-size: 13px; cursor: pointer; }
+.drop .cbtn.quiet { background: transparent; color: var(--ink); border-color: var(--line); }
+.drop .cbtn:disabled { opacity: 0.5; cursor: default; }
+.drop .said { font-size: 13px; padding: 6px 10px; border-radius: 8px; background: var(--paper-3); }
 
 /* ---------- the Agents tab: each desk as its Agent Card (box 22) */
 .dks { position: absolute; inset: 0; overflow: auto; padding: 18px 24px 32px; }

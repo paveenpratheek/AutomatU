@@ -16,7 +16,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import context
-from .models import AgentsAnswer, BoxContext, FindAnswer, NoticesAnswer, ShelfAnswer, SinceAnswer
+from .models import AgentsAnswer, BoxContext, CanvasesAnswer, FindAnswer, NoticesAnswer, ShelfAnswer, SinceAnswer
 from .store import migrate
 
 
@@ -58,7 +58,8 @@ server = MCPServer(
         "(through GitX) and what changed in time, and tells which plan boxes the code has moved past. Ask it for "
         "context before planning or changing a box: notices (what is behind), box (one box's words, code stacked "
         "under it, related boxes, decisions), find (boxes about a subject), since (what changed since a time "
-        "or a map), shelf (every box of a canvas with its hex location, to cite), agents (who answers for what). It only reads: write the canvas yourself through NoteX, and record "
+        "or a map), shelf (every box of a canvas with its hex location, to cite), canvases (the canvases the user added - the only "
+        "ones AutomatU answers about), agents (who answers for what). It only reads: write the canvas yourself through NoteX, and record "
         "decisions yourself through GitX."),
 )
 
@@ -104,6 +105,14 @@ def shelf(canvas: str) -> ShelfAnswer:
     ref, h:<canvas>/<totem id>/<box>), its words, the commits that built it, the code regions under it with
     their commits, the decisions they carry, and the maps the code is as of. One call per canvas."""
     return context.shelf(canvas)
+
+
+@server.tool(annotations=READ_ONLY)
+@said
+def canvases() -> CanvasesAnswer:
+    """The canvases the user added to AutomatU - the only ones it arranges, searches and serves - each with when
+    it was added and the repositories bound to it."""
+    return context.canvases_answer()
 
 
 @server.tool(annotations=READ_ONLY)

@@ -63,6 +63,9 @@ def bind(dir: str, canvas: str, totem: str | None = None, replace: bool = False,
             (repo, canvas, totem, tid))
         # Kept, never overwritten: which totem was the plan, and from when (t-25f10ce5fd).
         conn.execute("INSERT INTO binding_log (repo, canvas, totem, totem_id) VALUES (%s, %s, %s, %s)", (repo, canvas, totem, tid))
+    # The canvas a repository is bound to is in AutomatU (t-864bb59350).
+    from .canvases import ensure_added
+    ensure_added(canvas, "bound to " + repo.split("/")[-1])
     was = now["canvas"] + (" > " + now["totem"] if now["totem"] else "") if now else None
     return {"repo": repo, "canvas": canvas, "totem": totem, "totem_id": tid, "changed": True, "was": was}
 

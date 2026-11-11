@@ -398,6 +398,30 @@ class ShelfAnswer(BaseModel):
     note: str
 
 
+class AddedCanvas(BaseModel):
+    """One canvas the user added to AutomatU (box 24)."""
+    canvas: str
+    added_at: str
+    repos: list[str]
+
+
+class CanvasesAnswer(BaseModel):
+    """The canvases in AutomatU - the only ones it answers about."""
+    canvases: list[AddedCanvas]
+    note: str
+
+
+class CanvasAsk(BaseModel):
+    """Add or remove one canvas, from AutomatU's own page."""
+    canvas: str
+
+
+class CanvasChange(BaseModel):
+    canvas: str
+    changed: bool
+    problem: str | None = None
+
+
 class FindAnswer(BaseModel):
     query: str
     boxes: list[FoundBox]
