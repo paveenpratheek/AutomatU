@@ -74,9 +74,48 @@ async def _one(h: httpx.AsyncClient, url: str, token: str | None) -> dict:
         else:
             r.raise_for_status()
             out["live"] = _live(r.json())
+            # Its runs lately, finished ones too, for the bell and the history (box 21).
+            r = await h.get(url + "/desk/runs", params={"limit": 8}, headers={"Authorization": "Bearer " + token})
+            if r.status_code == 200:
+                out["recent"] = [_recent(x) for x in r.json().get("runs") or []]
     except (httpx.HTTPError, ValueError):
         out["note"] = "could not say what it is doing"
     return out
+
+
+def _s(v) -> str:
+    return "" if v is None else str(v)
+
+
+def _recent(r: dict) -> dict:
+    return {"task_id": _s(r.get("task_id")), "job": _s(r.get("job")), "state": _s(r.get("state")),
+            "started_at": _s(r.get("started_at")), "ended_at": _s(r.get("ended_at")), "said": _s(r.get("said"))[:600]}
+
+
+async def run(url: str, task: str, transport: httpx.AsyncBaseTransport | None = None) -> dict | None:
+    """One run of a desk, step by step, read with AutomatU's token (box 21,
+    t-2ddbfdabb6). None: no such desk, run or token."""
+    url = (url or "").strip().rstrip("/")
+    token = _token()
+    if url not in desk_urls() or not task or "/" in task or not token:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as h:
+            r = await h.get(f"{url}/desk/runs/{task}", headers={"Authorization": "Bearer " + token})
+        if r.status_code != 200:
+            return None
+        x = r.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    return {**_recent(x), "desk": url,
+            "steps": [{"step": _s(s.get("step")), "actor": _s(s.get("actor")), "status": _s(s.get("status")),
+                       "started_at": _s(s.get("started_at")), "ended_at": _s(s.get("ended_at")),
+                       "tries": s.get("tries") if isinstance(s.get("tries"), int) else None,
+                       "detail": s.get("detail") if isinstance(s.get("detail"), dict) else {}}
+                      for s in x.get("steps") or []],
+            "asks": [{"kind": _s(a.get("kind")), "text": _s(a.get("text")), "asked_at": _s(a.get("asked_at")),
+                      "answered_at": _s(a.get("answered_at")), "answer": _s(a.get("answer"))}
+                     for a in x.get("asks") or []]}
 
 
 async def desks(transport: httpx.AsyncBaseTransport | None = None) -> list[dict]:

@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import AgentsAnswer, DesksAnswer, InterruptAnswer, InterruptAsk, NoticesAnswer, Timeline
+from .models import AgentsAnswer, DeskRunDetail, DesksAnswer, InterruptAnswer, InterruptAsk, NoticesAnswer, Timeline
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -159,6 +159,16 @@ async def desks_of() -> dict:
     and what waits on the user, for the Agents tab (box 22, t-2b6d9b3541)."""
     from .desks import desks
     return {"desks": await desks()}
+
+
+@app.get("/api/desks/run", response_model=DeskRunDetail)
+async def desk_run(desk: str, task: str) -> dict:
+    """One run of a desk, step by step, for the run view (box 21, t-2ddbfdabb6)."""
+    from .desks import run
+    r = await run(desk, task)
+    if r is None:
+        raise HTTPException(404, "no such run at a desk AutomatU lists")
+    return r
 
 
 @app.post("/api/desks/interrupt", response_model=InterruptAnswer)

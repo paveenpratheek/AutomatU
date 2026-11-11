@@ -145,12 +145,56 @@ class DeskLive(BaseModel):
     waiting: list[DeskAsk] = []
 
 
+class DeskRecent(BaseModel):
+    """A run lately, finished or not: for the bell and the history (box 21)."""
+    task_id: str
+    job: str
+    state: str           # running, waiting, completed, failed, cancelled
+    started_at: str = ""
+    ended_at: str = ""
+    said: str = ""
+
+
 class Desk(BaseModel):
     url: str
     up: bool
     card: DeskCard | None = None
     live: DeskLive | None = None
+    recent: list[DeskRecent] = []
     note: str = ""
+
+
+class DeskRunStep(BaseModel):
+    """One step of a run as the desk recorded it: who did it, how it ended,
+    and what it cited, recorded, made or asked (box 21, t-2ddbfdabb6)."""
+    step: str
+    actor: str
+    status: str          # running, done, problems, waiting, failed, interrupted
+    started_at: str = ""
+    ended_at: str = ""
+    tries: int | None = None
+    detail: dict = {}
+
+
+class DeskRunAsk(BaseModel):
+    kind: str            # question, permission, interrupt
+    text: str
+    asked_at: str = ""
+    answered_at: str = ""
+    answer: str = ""
+
+
+class DeskRunDetail(BaseModel):
+    """/api/desks/run: one run, step by step, with everything it asked."""
+    desk: str
+    task_id: str
+    job: str
+    state: str
+    started_at: str = ""
+    ended_at: str = ""
+    said: str = ""
+    steps: list[DeskRunStep] = []
+    asks: list[DeskRunAsk] = []
 
 
 class DesksAnswer(BaseModel):

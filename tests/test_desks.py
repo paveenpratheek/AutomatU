@@ -106,3 +106,61 @@ def test_only_automatus_own_page_may_interrupt(setup, monkeypatch):
     ok = c.post("/api/desks/interrupt", json=body, headers={"origin": "http://testserver"})
     assert ok.status_code == 200 and ok.json() == {"interrupted": True, "why": ""}
     assert called == [("http://rm:1", "task-1")]
+
+
+RUN = {"task_id": "t1", "desk": "resume-maker", "job": "analyse-for-job", "state": "completed",
+       "started_at": "2026-11-11T10:00:00+00:00", "ended_at": "2026-11-11T10:02:00+00:00", "said": "## Analysis",
+       "steps": [{"step": "gather_for_posting", "actor": "code", "status": "done", "started_at": "2026-11-11T10:00:01+00:00",
+                  "ended_at": "2026-11-11T10:00:09+00:00", "tries": None, "detail": {"cited": ["h:W/tm-1/2. K"], "map": "130"}},
+                 {"step": "write_analysis", "actor": "agent", "status": "done", "started_at": "2026-11-11T10:01:00+00:00",
+                  "ended_at": "2026-11-11T10:02:00+00:00", "tries": None,
+                  "detail": {"recorded": "Resume > Resume Maker: analyses > Analysis: X"}}],
+       "asks": [{"kind": "question", "text": "Which posting?", "detail": {}, "asked_at": "2026-11-11T10:00:30+00:00",
+                 "answered_at": None, "answer": None}]}
+
+
+@pytest.fixture
+def runs_transport():
+    seen = []
+
+    def handle(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path, req.headers.get("authorization")))
+        if req.url.path == "/.well-known/agent-card.json":
+            return httpx.Response(200, json=CARD)
+        if req.url.path == "/desk/now":
+            return httpx.Response(200, json=NOW)
+        if req.url.path == "/desk/runs":
+            return httpx.Response(200, json={"desk": "resume-maker", "runs": [{k: v for k, v in RUN.items() if k not in ("steps", "asks")}]})
+        if req.url.path == "/desk/runs/t1":
+            return httpx.Response(200, json=RUN)
+        return httpx.Response(404, json={"error": "no such run"})
+    return httpx.MockTransport(handle), seen
+
+
+def test_a_desks_runs_lately_and_one_run_step_by_step_are_read_with_its_token(setup, monkeypatch, runs_transport):
+    # box 21, t-2ddbfdabb6: the history and the bell read finished runs too; a run is read in full.
+    t, seen = runs_transport
+    monkeypatch.setenv("AUTOMATU_DESKS", "http://rm:1")
+    rm = asyncio.run(desks.desks(t))[0]
+    assert rm["recent"] == [{"task_id": "t1", "job": "analyse-for-job", "state": "completed", "said": "## Analysis",
+                             "started_at": "2026-11-11T10:00:00+00:00", "ended_at": "2026-11-11T10:02:00+00:00"}]
+    r = asyncio.run(desks.run("http://rm:1/", "t1", t))
+    assert [s["step"] for s in r["steps"]] == ["gather_for_posting", "write_analysis"]
+    assert r["steps"][0]["detail"]["cited"] == ["h:W/tm-1/2. K"] and r["steps"][1]["detail"]["recorded"].startswith("Resume >")
+    assert r["asks"][0]["answer"] == "" and r["desk"] == "http://rm:1"
+    assert asyncio.run(desks.run("http://rm:1", "nope", t)) is None
+    assert asyncio.run(desks.run("http://elsewhere:2", "t1", t)) is None
+    assert all(m == "GET" for m, _, _ in seen) and {a for _, p, a in seen if p.startswith("/desk/")} == {"Bearer tok-a"}
+
+
+def test_the_api_serves_one_run_typed(setup, monkeypatch, runs_transport):
+    from fastapi.testclient import TestClient
+    from automatu.serve import app
+    t, _ = runs_transport
+    monkeypatch.setenv("AUTOMATU_DESKS", "http://rm:1")
+    real = desks.run
+    monkeypatch.setattr(desks, "run", lambda d, k: real(d, k, t))
+    c = TestClient(app)
+    j = c.get("/api/desks/run", params={"desk": "http://rm:1", "task": "t1"}).json()
+    assert j["job"] == "analyse-for-job" and j["steps"][1]["actor"] == "agent" and j["asks"][0]["kind"] == "question"
+    assert c.get("/api/desks/run", params={"desk": "http://rm:1", "task": "nope"}).status_code == 404

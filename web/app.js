@@ -17,7 +17,7 @@ import { addressOf, indexRelations, relationLayout } from './relate.js';
 import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
 import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore, hexChanges, popDelay } from './timeline.js';
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
-import { desksHtml } from './desks.js';
+import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -963,16 +963,21 @@ function loadNotices() {
 }
 
 function renderTop() {
-  const N = S.notices, count = N ? N.count : 0, b = $('bellcount'), bell = $('bellbtn');
+  const N = S.notices, boxes = N ? N.count : 0, b = $('bellcount'), bell = $('bellbtn');
+  const seen = deskSeen() || new Set(), fresh = (S.deskEvents || []).filter((e) => !seen.has(e.key)).length;
+  const count = boxes + fresh;
   b.hidden = !count; b.textContent = count > 99 ? '99+' : String(count);
   bell.classList.toggle('ring', count > 0);
-  bell.setAttribute('aria-label', count ? `${count} box${count === 1 ? '' : 'es'} the code has moved past` : 'Notices: no box is behind its code');
+  bell.setAttribute('aria-label', count ? [boxes ? `${boxes} box${boxes === 1 ? '' : 'es'} the code has moved past` : '',
+    fresh ? `${fresh} agent job${fresh === 1 ? '' : 's'} waiting, failed or finished` : ''].filter(Boolean).join('; ') : 'Notices: nothing new');
   for (const [id, k] of [['bellbtn', 'bell'], ['agentsbtn', 'agents']]) { $(id).setAttribute('aria-expanded', String(S.drop === k)); $(id).classList.toggle('on', S.drop === k); }
   const D = $('drop');
   D.hidden = !S.drop;
   if (!S.drop) return;
   const html = S.drop === 'bell' ? bellHtml() : agentsHtml();
   if (D.dataset.html !== html) { D.innerHTML = html; D.dataset.html = html; }
+  // Shown in the open bell: seen. They stay listed, no longer marked new or counted.
+  if (S.drop === 'bell' && fresh) { saveSeen([...seen, ...S.deskEvents.map((e) => e.key)]); b.hidden = !boxes; b.textContent = String(boxes); bell.classList.toggle('ring', boxes > 0); }
 }
 
 function noticeHtml(n, muted) {
@@ -986,7 +991,7 @@ function noticeHtml(n, muted) {
 function bellHtml() {
   const N = S.notices;
   if (!N) return `<p class="muted">${S.noticesFailed ? 'Could not read the notices: ' + esc(S.noticesFailed) : 'Reading the notices…'}</p>`;
-  return `<h3>Boxes the code has moved past</h3>` +
+  return eventsHtml(S.deskEvents || [], deskSeen() || new Set()) + `<h3>Boxes the code has moved past</h3>` +
     (N.behind.length ? N.behind.map((n) => noticeHtml(n, false)).join('') : '<p class="muted">None: every built box still matches its code.</p>') +
     (N.progress.length ? `<h3>Work in progress</h3>` + N.progress.map((n) => noticeHtml(n, true)).join('') : '') +
     (N.closed.length ? `<h3>Closed lately</h3>` + N.closed.map((n) => `<div class="nt closed"><div class="nth"><b>${esc(short(n.box))}</b><span class="mt">${esc(n.name)} · notice ${n.id} · ${esc(ist(n.closed_at))}</span></div><div class="mt">${esc(closedLine(n))}</div></div>`).join('') : '') +
@@ -1026,12 +1031,50 @@ export function render() {
 /* The Agents tab (box 22, t-2b6d9b3541): read from /api/desks, which reads each
    desk's Agent Card and what it is doing; refreshed while the tab is open. */
 function renderDesks() {
+  if (S.deskRun) {
+    const d = ((S.desks && S.desks.desks) || []).find((x) => x.url === S.deskRun.desk);
+    $('stage').innerHTML = runViewHtml(d, S.deskRun.run);
+    return;
+  }
   $('stage').innerHTML = S.desks ? desksHtml(S.desks) : '<div class="status">Looking for the desks…</div>';
 }
 
+/* Runs the bell has already shown, kept in this browser. Before the first
+   look, everything there is counts as seen, so old runs never ring. */
+function deskSeen() {
+  if (!S.deskSeen) {
+    try { const v = localStorage.getItem('automatu.deskSeen'); S.deskSeen = v ? new Set(JSON.parse(v)) : null; } catch (_) { S.deskSeen = null; }
+  }
+  return S.deskSeen;
+}
+function saveSeen(keys) {
+  S.deskSeen = new Set(keys);
+  try { localStorage.setItem('automatu.deskSeen', JSON.stringify([...S.deskSeen].slice(-200))); } catch (_) {}
+}
+
 function loadDesks() {
-  return fetch('/api/desks').then((r) => r.json()).then((j) => { S.desks = { ...j, said: S.deskSaid }; if (S.tab === 'agents') renderDesks(); })
-    .catch(() => { S.desks = { desks: [], said: S.deskSaid }; if (S.tab === 'agents') renderDesks(); });
+  return fetch('/api/desks').then((r) => r.json()).then((j) => {
+    S.desks = { ...j, said: S.deskSaid };
+    S.deskEvents = deskEvents(j);
+    if (!deskSeen()) saveSeen(S.deskEvents.map((e) => e.key));
+    if (S.tab === 'agents') renderDesks();
+    renderTop();
+  }).catch(() => { S.desks = { desks: [], said: S.deskSaid }; if (S.tab === 'agents') renderDesks(); });
+}
+
+/* One run, step by step (box 21, t-2ddbfdabb6), refreshed while it is open. */
+function loadDeskRun() {
+  const R = S.deskRun;
+  if (!R) return Promise.resolve();
+  return fetch(`/api/desks/run?desk=${encodeURIComponent(R.desk)}&task=${encodeURIComponent(R.task)}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => { if (S.deskRun === R) { R.run = j || { task_id: R.task, job: '', state: 'not found', steps: [], asks: [], desk: R.desk }; if (S.tab === 'agents') renderDesks(); } })
+    .catch(() => {});
+}
+function openDeskRun(desk, task) {
+  S.drop = null; renderTop();
+  S.tab = 'agents'; S.deskRun = { desk, task, run: null };
+  render(); loadDeskRun();
 }
 
 /* The user's Interrupt (box 23, t-5bb672b723): asked once, then passed on to the
@@ -1160,6 +1203,9 @@ document.addEventListener('click', (e) => {
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
   const intr = e.target.closest('[data-int-task]');
   if (intr) return interruptDesk(intr);
+  const opener = e.target.closest('[data-run-task]');
+  if (opener) return openDeskRun(opener.dataset.runDesk, opener.dataset.runTask);
+  if (e.target.closest('[data-run-back]')) { S.deskRun = null; return render(); }
   const t = e.target.closest('button, polygon, [data-tver], [data-tmap]');
   if (!t) return;
   const d = t.dataset;
@@ -1314,7 +1360,8 @@ async function start() {
   render();
   if (S.repo) loadCode();
   loadNotices();
-  setInterval(() => { follow().catch(() => {}); loadNotices(); if (S.tab === 'agents') loadDesks(); }, 4000);
+  loadDesks();
+  setInterval(() => { follow().catch(() => {}); loadNotices(); loadDesks(); if (S.tab === 'agents' && S.deskRun) loadDeskRun(); }, 4000);
 }
 
 /* The live map (t-5b98c27370): the server makes a new map on every commit or
