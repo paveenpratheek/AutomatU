@@ -475,3 +475,48 @@ button { font: inherit; color: inherit; }
 .wf-grant input[type=text] { font-size: 12px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; width: 120px; }
 .wf-chip { background: #EEF3FB; border: 1px solid #C9D8F0; border-radius: 12px; padding: 1px 4px 1px 8px; }
 .wf-chip button { border: 0; background: transparent; cursor: pointer; font-size: 11px; padding: 0 4px; }
+
+/* ---------- the Knowledge Desk tab (box 25): Desks, Flows, Tracking, Monitoring */
+.kdpage { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.kdbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 24px 10px; border-bottom: 1px solid var(--line-2); background: var(--paper-2); flex-wrap: wrap; }
+.kdsec { font: 500 13px var(--sans); padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.kdsec.on { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.kdsec .badge { position: static; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #E07A00; color: #FFFFFF; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.kdnote { font-size: 12.5px; color: #A33A3A; margin-left: 8px; }
+.kdbody { position: relative; flex: 1 1 auto; overflow: auto; }
+.kdbody .dks { position: static; inset: auto; overflow: visible; padding: 16px 24px 32px; }
+.kd { padding: 18px 24px 4px; }
+.kd h2 { margin: 6px 0 12px; font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.kd .said { font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--paper-3); margin: 0 0 12px; }
+.kd .muted, .kd .mt { color: var(--ink-3); }
+.kd .mt { font-size: 12px; }
+.kd .hot { color: #A33A3A; }
+.kd ul.plain { margin: 6px 0 12px; padding-left: 20px; line-height: 1.7; }
+.kdgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; margin-bottom: 18px; }
+.kdcard, .kdform { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 12px; box-shadow: 0 1px 2px rgba(20, 20, 19, 0.06); }
+.kdcard header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kdcard h3, .kdform h3 { margin: 0 0 6px; font-size: 16px; }
+.kdcard .role { margin: 0 0 10px; color: var(--ink-2); }
+.kdcard dl { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; margin: 0; font-size: 13px; }
+.kdcard dt { font: 11px var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-3); padding-top: 2px; }
+.kdcard dd { margin: 0; min-width: 0; }
+.kdcard dd ul { margin: 0; padding: 0; list-style: none; }
+.kdcard footer { display: flex; gap: 8px; margin-top: 12px; }
+.kdform { display: flex; flex-direction: column; gap: 10px; border-style: dashed; }
+.kdform label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+.kdform input, .kdform textarea, .kdform select { font: 14px var(--sans); padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper-2); color: var(--ink); }
+.kdform fieldset { border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 10px 8px; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.kdform legend { font-size: 12.5px; color: var(--ink-2); padding: 0 4px; }
+.kdform label.chk { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
+.kdform .kdrow { display: flex; gap: 8px; }
+.kbtn { min-height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--card); font: inherit; font-size: 13px; cursor: pointer; }
+.kbtn.quiet { background: transparent; color: var(--ink); border-color: var(--line); }
+.kbtn:disabled { opacity: 0.5; cursor: default; }
+ul.trk { list-style: none; margin: 8px 0 0; padding: 0; }
+ul.trk li { display: flex; flex-direction: column; gap: 1px; padding: 6px 0 6px 10px; border-left: 3px solid #FFB347; margin-bottom: 4px; }
+ul.trk li.changed { border-left-color: #E07A00; background: #FFF6EA; }
+ul.trk li.gone { border-left-color: #A33A3A; background: #FBEDED; }
+ul.trk.idx li { border-left-color: var(--line); }
+.trk-mark { margin-top: 4px; font: 500 10.5px var(--mono); color: #8A4B00; background: #FFE4BF; border-radius: 6px; padding: 1px 6px; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trk-mark.moved { background: #E07A00; color: #FFFFFF; }
+@media (max-width: 720px) { .kdbar, .kd { padding-left: 16px; padding-right: 16px; } .kdcard dl { grid-template-columns: 1fr; } }

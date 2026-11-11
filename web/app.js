@@ -19,6 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
+import { SECTIONS, formBody, kdBarHtml, kdDesksHtml, kdMonitoringHtml, kdTrackingHtml, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
 
 const $ = (id) => document.getElementById(id);
@@ -51,7 +52,11 @@ export const S = {
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
   notices: null, agents: null, drop: null, noticesFailed: '',
   canvasList: null, canvasBusy: '', canvasSaid: '', canvasFailed: '',
+  kdSec: 'desks', kd: null, kdForm: null, kdSaid: '',
 };
+
+/* The Knowledge Desk tab and its sections (box 25): Agents and Workflows live inside it. */
+const inKd = (sec) => S.tab === 'kd' && S.kdSec === sec;
 
 function stageSize() { const r = $('stage').getBoundingClientRect(); return { w: Math.max(320, r.width), h: Math.max(320, r.height) }; }
 
@@ -113,14 +118,17 @@ function renderMain() {
 
   const cells = [];
   let cellList = [], F, ids = [], arranged = null;
+  /* The Tracking layer (t-799e6f44c2): boxes a desk tracks, from Knowledge Desk. */
+  if (!S.track || S.track.m !== S.m) S.track = { m: S.m, on: trackedOn(reg, (S.kd && S.kd.tracking) || []) };
   const cellFor = (id, at, W, H, o) => {
     const x = reg[id], p = palOf(reg, id), hh = heat(id), sel = S.sel === id;
+    const tk = S.track.on.size ? trackMark(id, id === 'root' ? [] : boxesUnder(reg, id), S.track.on) : null;
     const nm = x.name, lenDiv = nm.length > 26 ? 11 : (nm.length > 14 ? 9 : 7);
     const fs = Math.max(10, Math.min(o.maxFs, W / lenDiv));
     const fill = o.kind === 'canvas' ? grad(p.soft, p.strong) : o.kind === 'totem' ? grad(p.fill, p.strong) : o.leaf ? grad('#FFFFFF', p.soft) : grad(p.soft, p.fill);
     return { id, l: at[0] - W / 2, t: at[1] - H / 2, w: W, h: H, fs, subFs: Math.max(9, Math.min(12, fs - 3)), weight: o.kind === 'totem' || o.kind === 'canvas' ? 700 : 600,
       title: nm, sub: o.sub, line: sel ? '#141413' : p.ring, inset: sel ? 2 : 1, fill, ink: p.ink, op: 1, hits: hh, arr: hh ? heatArr(id) : null, sel, pf: p.fill,
-      kws: [], heat: '', act: o.leaf ? 'read' : 'open', aria: (o.leaf ? 'Read ' : 'Open ') + nm, at };
+      kws: [], heat: '', act: o.leaf ? 'read' : 'open', aria: (o.leaf ? 'Read ' : 'Open ') + nm, at, tk };
   };
   if (view === 'root') {
     const L = S.layouts.root || (S.layouts.root = rootLayout(S.m));
@@ -183,15 +191,16 @@ function renderMain() {
     (focused ? `<div class="hexclip" aria-hidden="true" style="position:absolute;left:${w / 2 - BW / 2}px;top:${80 + (h - 90 - BH) / 2}px;width:${BW}px;height:${BH}px;background:radial-gradient(closest-side, ${bp.glow} 0%, rgba(244, 242, 236, 0) 100%)"></div>` +
       `<svg class="ghost" aria-hidden="true" width="${BW}" height="${BH}" style="left:${w / 2 - BW / 2}px;top:${80 + (h - 90 - BH) / 2}px"><polygon points="${hexPts(BW, BH)}" fill="none" stroke="${bp.ring.replace(/0\.\d+\)$/, '0.16)')}"></polygon></svg>` : '') +
     ghosts.map((g) => `<svg class="ghost" aria-hidden="true" width="${g.w}" height="${g.h}" style="left:${g.l}px;top:${g.t}px"><polygon points="${pts}" fill="none" stroke="${g.line}"></polygon></svg>`).join('') +
-    cells.map((c) => `<div class="cell hexclip" style="left:${c.l}px;top:${c.t}px;width:${c.w}px;height:${c.h}px;opacity:${c.op};background:${c.line}">` +
+    cells.map((c) => `<div class="cell hexclip" style="left:${c.l}px;top:${c.t}px;width:${c.w}px;height:${c.h}px;opacity:${c.op};background:${c.tk && c.tk.own && !c.sel ? (c.tk.moved ? '#E07A00' : '#FFB347') : c.line}">` +
       `<button type="button" class="hx hexclip" data-act="${c.act}" data-id="${c.id}" data-x="${c.at[0]}" data-y="${c.at[1]}" aria-label="${esc(c.aria)}" style="inset:${c.inset}px;background:${c.fill};color:${c.ink}">` +
       `<span class="t" style="font-size:${c.fs}px;font-weight:${c.weight}">${esc(c.title)}</span><span class="s" style="font-size:${c.subFs}px">${esc(c.sub)}</span>` +
+      (c.tk ? `<span class="trk-mark${c.tk.moved ? ' moved' : ''}">${esc(c.tk.label)}</span>` : '') +
       (c.kws.length ? `<span class="heat">${c.kws.map((k) => `<i><b style="background:${k.col}"></b>${k.n}</i>`).join('')}${c.heat ? `<span>${c.heat}</span>` : ''}</span>` : '') +
       `</button></div>`).join('') +
     `</div>` +
     `<svg class="grain" aria-hidden="true" width="100%" height="100%"><filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"></feTurbulence><feColorMatrix type="saturate" values="0"></feColorMatrix></filter><rect width="100%" height="100%" filter="url(#grain)"></rect></svg>` +
     (focused ? `<div class="title"><div class="n" style="color:${bp.ink}">${esc(node.name)}</div><div class="kd">${esc(viewKind(reg, node))}</div></div>` : '') +
-    `<div class="legend">` + [['#CFC9BA', 'Canvas'], ['#9AA6C8', 'Totem'], ['#D4DCEF', 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#E39B0B', 'Traffic']]
+    `<div class="legend">` + [['#CFC9BA', 'Canvas'], ['#9AA6C8', 'Totem'], ['#D4DCEF', 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#E39B0B', 'Traffic'], ['#FFB347', 'Tracked by a desk']]
       .map(([c, t]) => `<span><span class="sw hexclip" style="background:${c}"></span>${t}</span>`).join('') + `</div>`;
 
   renderMainPanel(reg, view, node, ids.length ? ids : node.children, Q, heat, heatArr, arranged);
@@ -940,14 +949,12 @@ function renderChrome() {
   const target = S.m ? boardTarget() : null;
   $('tabs').innerHTML = [['Main', 'main', 'The hexagon map: find things'], ['Code', 'code', 'The code map: the plan and its code'],
     ['Canvas', 'canvas', target ? 'Open the ' + S.m.reg[target].name + ' canvas, as CanvasX shows it' : 'Pick a canvas on the map first'],
-    ['Agents', 'agents', 'Each desk as its Agent Card: what it is doing, and what waits on you'],
-    ['Workflows', 'workflows', "Arrange each desk job's flow, and what each desk may do"]].map(([l, k, why]) =>
+    ['Knowledge Desk', 'kd', 'The junction to Work Desks: the desks and who sits at them, their flows, what they track, and monitoring']].map(([l, k, why]) =>
     `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}" title="${esc(why)}"${k === 'canvas' && !target ? ' disabled' : ''}>${l}</button>`).join('');
   let crumbs;
   if (S.tab === 'main' && S.m) crumbs = S.path.filter((id) => S.m.reg[id]).map((id, i, arr) => ({ name: S.m.reg[id].name, go: i < arr.length - 1 ? 'path:' + i : '' }));
   else if (S.tab === 'canvas' && S.m && S.bcanvas) crumbs = [{ name: 'Map', go: 'path:0' }, { name: S.m.reg[S.bcanvas].name, go: 'canvas:' + S.bcanvas }, { name: 'Open canvas', go: '' }];
-  else if (S.tab === 'agents') crumbs = [{ name: 'Agents', go: '' }];
-  else if (S.tab === 'workflows') crumbs = [{ name: 'Workflows', go: '' }];
+  else if (S.tab === 'kd') crumbs = [{ name: 'Knowledge Desk', go: '' }, { name: (SECTIONS.find((x) => x[0] === S.kdSec) || [0, ''])[1], go: '' }];
   else crumbs = [{ name: 'Code map', go: '' }].concat(S.repo ? [{ name: S.repo.split('/').pop(), go: '' }] : []);
   $('crumbs').innerHTML = crumbs.map((c, i) => (i ? '<span class="arrow" aria-hidden="true">›</span>' : '') + `<button type="button" class="crumb${c.go ? '' : ' last'}" data-crumb="${c.go}">${esc(c.name)}</button>`).join('');
   const shown = Q.kw.map((k, i) => ({ k, i })).filter(({ i }) => Q.on[i].shown);
@@ -1050,11 +1057,10 @@ function openNoticeRegion(repo, rid) {
 
 export function render() {
   renderChrome();
-  $('panel').hidden = S.tab === 'canvas' || S.tab === 'agents' || S.tab === 'workflows' || (S.tab === 'code' && !!S.net);
+  $('panel').hidden = S.tab === 'canvas' || S.tab === 'kd' || (S.tab === 'code' && !!S.net);
   if (S.tab === 'code') renderCode();
   else if (S.tab === 'canvas') renderBoard();
-  else if (S.tab === 'agents') renderDesks();
-  else if (S.tab === 'workflows') renderWorkflows();
+  else if (S.tab === 'kd') renderKd();
   else renderMain();
 }
 
@@ -1062,14 +1068,75 @@ export function render() {
 
 /* The Agents tab (box 22, t-2b6d9b3541): read from /api/desks, which reads each
    desk's Agent Card and what it is doing; refreshed while the tab is open. */
+function kdStage(html) {
+  $('stage').innerHTML = `<div class="kdpage">${kdBarHtml(S.kdSec, S.kd)}<div class="kdbody">${html}</div></div>`;
+}
+
+function renderKd() {
+  if (S.kdSec === 'flows') return renderWorkflows();
+  if (S.kdSec === 'tracking') return kdStage(kdTrackingHtml(S.kd));
+  if (S.kdSec === 'monitoring') return kdStage(kdMonitoringHtml());
+  return renderDesks();
+}
+
+/* The canvases a desk may name: the ones the user added (box 24). */
+const addedCanvases = () => (S.m ? S.m.reg.root.children.map((id) => S.m.reg[id].name) : []);
+
 function renderDesks() {
   if (S.deskRun) {
     const d = ((S.desks && S.desks.desks) || []).find((x) => x.url === S.deskRun.desk);
-    $('stage').innerHTML = runViewHtml(d, S.deskRun.run);
+    kdStage(runViewHtml(d, S.deskRun.run));
     return;
   }
-  $('stage').innerHTML = S.desks ? desksHtml(S.desks) : '<div class="status">Looking for the desks…</div>';
+  /* Keep what is being typed in the form: redraw it only when nothing in it has focus. */
+  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-kdform]');
+  if (typing) return;
+  kdStage(kdDesksHtml(S.kd, S.kdForm, addedCanvases(), S.kdSaid) +
+    `<section class="kd"><h2>Desks with an agent hosted</h2></section>` +
+    (S.desks ? desksHtml(S.desks) : '<div class="status">Looking for the desks…</div>'));
 }
+
+/* What Knowledge Desk serves the tab (box 25), and the Tracking layer on Main. */
+function loadKd() {
+  return getJson('/api/kd').then((j) => {
+    const before = JSON.stringify(S.kd && S.kd.tracking);
+    S.kd = j;
+    if (S.tab === 'kd' && S.kdSec !== 'flows') renderKd();
+    else if (S.tab === 'kd') { const bar = document.querySelector('.kdbar'); if (bar) bar.outerHTML = kdBarHtml(S.kdSec, S.kd); }
+    else if (S.tab === 'main' && before !== JSON.stringify(j.tracking)) { S.track = null; renderMain(); }
+  }).catch(() => {});
+}
+
+function kdClick(el) {
+  const a = el.dataset.kd;
+  if (a === 'cancel') { S.kdForm = null; return renderDesks(); }
+  const d = ((S.kd && S.kd.desks) || []).find((x) => x.slug === el.dataset.slug);
+  if (a === 'edit' && d) { S.kdForm = { slug: d.slug, name: d.name, role: d.role, main_canvas: d.main_canvas, attached: d.attached, owner: d.owner }; S.kdSaid = ''; return renderDesks(); }
+  if (a === 'remove' && d) {
+    if (!window.confirm(`Remove the ${d.name} desk? Whoever sits there leaves it; its canvases are not touched, and its versions are kept.`)) return;
+    return sendDesk('remove', { desk: d.slug }, `${d.name} removed.`);
+  }
+}
+
+function sendDesk(action, body, ok) {
+  S.kdSaid = '';
+  return post('/api/kd/desks/' + action, body)
+    .then((j) => { S.kdSaid = j.done ? ok : `Not done: ${j.problem || j.detail || 'Knowledge Desk said no'}`; if (j.done) S.kdForm = null; })
+    .catch(() => { S.kdSaid = 'AutomatU could not be reached.'; })
+    .then(() => { if (S.kdForm) S.kdForm.busy = false; return loadKd(); })
+    .then(renderDesks);
+}
+
+document.addEventListener('submit', (e) => {
+  const f = e.target.closest('[data-kdform]');
+  if (!f) return;
+  e.preventDefault();
+  const slug = S.kdForm && S.kdForm.slug, body = formBody(new FormData(f), slug);
+  S.kdForm = { ...(S.kdForm || {}), ...body, slug, busy: true };
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  renderDesks();
+  sendDesk(slug ? 'change' : 'create', body, slug ? `${body.name || slug} changed.` : `${body.name} created: tell an agent to sit at the ${body.name} desk.`);
+});
 
 /* Runs the bell has already shown, kept in this browser. Before the first
    look, everything there is counts as seen, so old runs never ring. */
@@ -1089,9 +1156,9 @@ function loadDesks() {
     S.desks = { ...j, said: S.deskSaid };
     S.deskEvents = deskEvents(j);
     if (!deskSeen()) saveSeen(S.deskEvents.map((e) => e.key));
-    if (S.tab === 'agents') renderDesks();
+    if (inKd('desks')) renderDesks();
     renderTop();
-  }).catch(() => { S.desks = { desks: [], said: S.deskSaid }; if (S.tab === 'agents') renderDesks(); });
+  }).catch(() => { S.desks = { desks: [], said: S.deskSaid }; if (inKd('desks')) renderDesks(); });
 }
 
 /* One run, step by step (box 21, t-2ddbfdabb6), refreshed while it is open. */
@@ -1100,12 +1167,12 @@ function loadDeskRun() {
   if (!R) return Promise.resolve();
   return fetch(`/api/desks/run?desk=${encodeURIComponent(R.desk)}&task=${encodeURIComponent(R.task)}`)
     .then((r) => (r.ok ? r.json() : null))
-    .then((j) => { if (S.deskRun === R) { R.run = j || { task_id: R.task, job: '', state: 'not found', steps: [], asks: [], desk: R.desk }; if (S.tab === 'agents') renderDesks(); } })
+    .then((j) => { if (S.deskRun === R) { R.run = j || { task_id: R.task, job: '', state: 'not found', steps: [], asks: [], desk: R.desk }; if (inKd('desks')) renderDesks(); } })
     .catch(() => {});
 }
 function openDeskRun(desk, task) {
   S.drop = null; renderTop();
-  S.tab = 'agents'; S.deskRun = { desk, task, run: null };
+  S.tab = 'kd'; S.kdSec = 'desks'; S.deskRun = { desk, task, run: null };
   render(); loadDeskRun();
 }
 
@@ -1127,14 +1194,14 @@ function interruptDesk(b) {
 
 /* The Workflows tab (box 20, t-d966145acd): a desk job's flow, arranged here,
    checked by the desk on save, kept by AutomatU in time; and the desk's grants. */
-function renderWorkflows() { $('stage').innerHTML = editorHtml(S.wf); }
+function renderWorkflows() { kdStage(editorHtml(S.wf)); }
 
 function openWorkflows() {
   S.wf = S.wf || {};
   const pick = () => {
     S.wf.desks = ((S.desks && S.desks.desks) || []);
     if (!S.wf.desk) { const d = S.wf.desks.find((x) => x.up && x.live); if (d) return loadWorkflows(d.url); }
-    if (S.tab === 'workflows') renderWorkflows();
+    if (inKd('flows')) renderWorkflows();
   };
   return (S.desks ? Promise.resolve() : loadDesks()).then(pick);
 }
@@ -1142,7 +1209,7 @@ function openWorkflows() {
 function loadWorkflows(url, keepJob) {
   const W = S.wf;
   W.desk = url; W.data = null; W.error = ''; W.problems = []; W.said = ''; W.grantsSaid = '';
-  if (S.tab === 'workflows') renderWorkflows();
+  if (inKd('flows')) renderWorkflows();
   return fetch('/api/workflows?desk=' + encodeURIComponent(url))
     .then((r) => r.json().then((j) => (r.ok ? j : Promise.reject(new Error(j.detail || r.statusText)))))
     .then((j) => {
@@ -1154,7 +1221,7 @@ function loadWorkflows(url, keepJob) {
       W.grants = { writes: [...(g.writes || [])], asks: [...(g.asks || [])] };
     })
     .catch((e) => { W.error = 'Could not read the desk: ' + e.message; })
-    .then(() => { if (S.tab === 'workflows') renderWorkflows(); });
+    .then(() => { if (inKd('flows')) renderWorkflows(); });
 }
 
 function startDraft(steps) {
@@ -1216,7 +1283,7 @@ function workflowsChange(el) {
 
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-wf]');
-  if (el && S.tab === 'workflows') workflowsChange(el);
+  if (el && inKd('flows')) workflowsChange(el);
 });
 
 /* ------------------------------------------------------------ the open canvas */
@@ -1337,8 +1404,12 @@ document.addEventListener('click', (e) => {
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
   const intr = e.target.closest('[data-int-task]');
   if (intr) return interruptDesk(intr);
+  const kds = e.target.closest('[data-kdsec]');
+  if (kds) { S.kdSec = kds.dataset.kdsec; S.deskRun = null; if (S.kdSec === 'flows') openWorkflows(); return render(); }
+  const kdb = e.target.closest('button[data-kd]');
+  if (kdb) return kdClick(kdb);
   const wfb = e.target.closest('button[data-wf]');
-  if (wfb && S.tab === 'workflows') return workflowsClick(wfb);
+  if (wfb && inKd('flows')) return workflowsClick(wfb);
   const opener = e.target.closest('[data-run-task]');
   if (opener) return openDeskRun(opener.dataset.runDesk, opener.dataset.runTask);
   if (e.target.closest('[data-run-back]')) { S.deskRun = null; return render(); }
@@ -1354,7 +1425,7 @@ document.addEventListener('click', (e) => {
   if (d.tab) {
     if (S.tab !== d.tab) {
       if (d.tab === 'canvas') { const t = boardTarget(); if (t !== S.bcanvas) S.bview = null; S.bcanvas = t; }
-      S.tab = d.tab; if (d.tab === 'code') loadCode(); if (d.tab === 'agents') loadDesks(); if (d.tab === 'workflows') openWorkflows(); render();
+      S.tab = d.tab; if (d.tab === 'code') loadCode(); if (d.tab === 'kd') { loadDesks(); loadKd(); if (S.kdSec === 'flows') openWorkflows(); } render();
     }
     return;
   }
@@ -1462,6 +1533,7 @@ function fromLink() {
   if (u.get('q')) { S.query = u.get('q'); $('term').value = S.query; }
   if (u.get('repo')) { const r = S.repos.find((x) => x.repo.split('/').pop().toLowerCase() === u.get('repo').toLowerCase()); if (r) S.repo = r.repo; }
   if (u.get('tab') === 'code') S.tab = 'code';
+  if (u.get('tab') === 'kd') { S.tab = 'kd'; if (SECTIONS.some((x) => x[0] === u.get('sec'))) S.kdSec = u.get('sec'); }
   if (u.get('tab') === 'canvas' && S.m) {
     const name = (u.get('canvas') || '').toLowerCase();
     S.bcanvas = S.m.reg.root.children.find((id) => S.m.reg[id].name.toLowerCase() === name) || S.m.reg.root.children[0];
@@ -1495,9 +1567,11 @@ async function start() {
   } catch (e) { S.failed = 'Could not load the canvases: ' + e.message; }
   render();
   if (S.repo) loadCode();
+  if (inKd('flows')) openWorkflows();
   loadNotices();
   loadDesks();
-  setInterval(() => { follow().catch(() => {}); loadNotices(); loadDesks(); if (S.tab === 'agents' && S.deskRun) loadDeskRun(); }, 4000);
+  loadKd();
+  setInterval(() => { follow().catch(() => {}); loadNotices(); loadDesks(); loadKd(); if (inKd('desks') && S.deskRun) loadDeskRun(); }, 4000);
 }
 
 /* The live map (t-5b98c27370): the server makes a new map on every commit or

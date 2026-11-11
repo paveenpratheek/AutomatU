@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import (AgentsAnswer, ArrangementSave, CanvasAsk, CanvasChange, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
+from .models import (AgentsAnswer, ArrangementSave, CanvasAsk, CanvasChange, KdDeskAnswer, KdDeskChange, KdOverview, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
                      InterruptAsk, NoticesAnswer, SaveAnswer, Timeline)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -224,6 +224,25 @@ def _own_page(request: Request, what: str) -> None:
     origin, host = request.headers.get("origin"), request.headers.get("host", "")
     if origin not in (f"http://{host}", f"https://{host}"):
         raise HTTPException(403, f"only AutomatU's own page may {what}")
+
+
+# ------------------------------------------------------------ the Knowledge Desk tab (box 25, t-8551b11d21)
+
+@app.get("/api/kd", response_model=KdOverview)
+async def kd_overview() -> dict:
+    """The desks the user created with who sits at each, every tracked box, and
+    what Knowledge Desk has indexed - read with AutomatU's token."""
+    from .knowledge import overview
+    return await overview()
+
+
+@app.post("/api/kd/desks/{action}", response_model=KdDeskAnswer)
+async def kd_desk_change(action: str, ask: KdDeskChange, request: Request) -> dict:
+    """The user creates, changes or removes a desk - passed on to Knowledge
+    Desk, which checks it; only from AutomatU's own page (t-d41a20184d)."""
+    _own_page(request, "create, change or remove a desk")
+    from .knowledge import change_desk
+    return await change_desk(action, ask.model_dump(exclude_none=True))
 
 
 # ------------------------------------------------------------ the desks' workflows (box 20, t-d966145acd)

@@ -202,6 +202,16 @@ The bell also rings for each box a desk tracks that changed or went since its
 agent read it, read from Knowledge Desk's `/knowledge/tracking` with
 AutomatU's token (t-e8412b6296).
 
+**The Knowledge Desk tab** (box 25, `web/kd.js`, `automatu/knowledge.py`): the
+tabs are Main, Code, Canvas and Knowledge Desk. Its sections are Desks (the
+desks the user created, who sits at each, creating, changing and removing
+them - passed on to Knowledge Desk from this page only - and the hosted desks'
+cards and runs), Flows (the Workflows editor), Tracking (each desk's tracked
+boxes and the index) and Monitoring (A2A and tracing, which come with K6).
+Everything is read from Knowledge Desk's server (`AUTOMATU_KNOWLEDGE_DESK`,
+default 127.0.0.1:7796) with AutomatU's token, through `/api/kd`. The Main
+map draws the Tracking layer: tracked boxes ringed in orange.
+
 Built features (each explained on the canvas in **AutomatU: how it works**):
 binding a repository to its canvas and plan totem; reading GitX through a Node
 bridge (`automatu/gitx_bridge.mjs`, never code text); reading the canvas

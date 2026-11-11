@@ -177,6 +177,63 @@ class Desk(BaseModel):
     note: str = ""
 
 
+class KdSitter(BaseModel):
+    sitting: int
+    desk: str
+    agent: str
+    client: str = ""
+    since: str | None = None
+    last_seen: str | None = None
+    away: bool = False
+
+
+class KdDesk(BaseModel):
+    """A desk the user created, as Knowledge Desk keeps it (box 25)."""
+    slug: str
+    version: int
+    name: str
+    role: str
+    owner: str
+    main_canvas: str
+    attached: list[str] = []
+    created_at: str | None = None
+    changed_at: str | None = None
+    sitting: list[KdSitter] = []
+
+
+class KdCanvas(BaseModel):
+    canvas: str
+    boxes: int
+    updated_at: str
+
+
+class KdOverview(BaseModel):
+    """What the Knowledge Desk tab shows: the desks, every tracked box, the index."""
+    url: str
+    up: bool
+    note: str = ""
+    desks: list[KdDesk] = []
+    tracking: list[DeskTracked] = []
+    canvases: list[KdCanvas] = []
+
+
+class KdDeskChange(BaseModel):
+    """Create, change or remove a desk, from AutomatU's own page."""
+    desk: str | None = None
+    name: str | None = None
+    role: str | None = None
+    main_canvas: str | None = None
+    attached: list[str] | None = None
+    owner: str | None = None
+
+
+class KdDeskAnswer(BaseModel):
+    done: bool
+    desk: str | None = None
+    version: int | None = None
+    problem: str | None = None
+
+
 class DeskRunStep(BaseModel):
     """One step of a run as the desk recorded it: who did it, how it ended,
     and what it cited, recorded, made or asked (box 21, t-2ddbfdabb6)."""
