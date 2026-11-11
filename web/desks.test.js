@@ -55,3 +55,15 @@ test('the tab counts everything waiting on the user', () => {
   assert.match(desksHtml({ desks: [RM, RM] }, NOW), /2 waiting on you/);
   assert.match(desksHtml({ desks: [] }), /No desks are listed/);
 });
+
+test('only a running job can be interrupted, and the button names its desk and task', async () => {
+  const { interruptButton } = await import('./desks.js');
+  assert.equal(interruptButton(RM.live.runs[0], RM.url), '', 'a job waiting on the user has no Interrupt');
+  const running = { task_id: 't2', job: 'analyse-for-job', state: 'running' };
+  const b = interruptButton(running, RM.url);
+  assert.match(b, /data-int-desk="http:\/\/127\.0\.0\.1:7795"/);
+  assert.match(b, /data-int-task="t2"/);
+  assert.match(b, />Interrupt</);
+  assert.match(cardHtml({ ...RM, live: { ...RM.live, runs: [running], waiting: [] } }, NOW), /class="dk-int"/);
+  assert.match(desksHtml({ desks: [RM], said: 'Interrupted <x>' }, NOW), /Interrupted &lt;x&gt;/);
+});

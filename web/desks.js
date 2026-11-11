@@ -2,7 +2,9 @@
  * The Agents tab (box 22, t-2b6d9b3541), with no DOM: each Work Desks desk as
  * its A2A Agent Card - what it does, its skills - with who sits at it, the
  * job and step it is on, and every permission ask or question waiting on the
- * user. AutomatU only shows this; the user answers from their chat.
+ * user. AutomatU only shows this; the user answers from their chat. The one
+ * thing the user can do here is interrupt a running job (box 23,
+ * t-5bb672b723): AutomatU passes the click on to the desk and decides nothing.
  */
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -30,6 +32,13 @@ export function sitter(live) {
   return live.model ? `${who} · ${live.model}` : who;
 }
 
+/* The Interrupt button a running job shows; waiting or finished jobs have none. */
+export function interruptButton(r, url) {
+  if (r.state !== 'running' || !url || !r.task_id) return '';
+  return `<button class="dk-int" data-int-desk="${esc(url)}" data-int-task="${esc(r.task_id)}" data-int-job="${esc(r.job)}" ` +
+    `title="Stop this job now: the desk asks you in your chat whether to carry on, cancel, or do something else">Interrupt</button>`;
+}
+
 /* The line a run shows on its card: the job, then the step it is on and who does it. */
 export function runLine(r) {
   const s = r.step;
@@ -47,7 +56,7 @@ export function cardHtml(d, now = Date.now()) {
     return `<article class="dk off"><header><h3>${esc(d.url)}</h3><span class="dk-state">${esc(d.note || 'not running')}</span></header></article>`;
   }
   const runs = live && live.runs.length
-    ? live.runs.map((r) => `<li>${runLine(r)}<span class="dk-t">${esc(ago(r.started_at, now))}</span></li>`).join('')
+    ? live.runs.map((r) => `<li>${runLine(r)}<span class="dk-t">${esc(ago(r.started_at, now))}</span>${interruptButton(r, d.url)}</li>`).join('')
     : `<li class="dk-idle">${live ? 'Idle: no job running' : esc(d.note || '')}</li>`;
   const asks = live && live.waiting.length
     ? `<section class="dk-asks"><h4>Waiting on you (${live.waiting.length})</h4><ul>` + live.waiting.map((a) =>
@@ -73,5 +82,6 @@ export function desksHtml(answer, now = Date.now()) {
   const waiting = ds.reduce((n, d) => n + ((d.live && d.live.waiting.length) || 0), 0);
   return `<div class="dks"><div class="dks-head"><b>Agents</b> - each desk as its Agent Card, with what it is doing now` +
     (waiting ? ` · <span class="dk-wait">${waiting} waiting on you</span>` : '') + '</div>' +
+    (answer.said ? `<div class="dk-said">${esc(answer.said)}</div>` : '') +
     `<div class="dks-grid">${ds.map((d) => cardHtml(d, now)).join('')}</div></div>`;
 }

@@ -159,6 +159,18 @@ class DesksAnswer(BaseModel):
     desks: list[Desk]
 
 
+class InterruptAsk(BaseModel):
+    """The user's interrupt from the Agents tab: which desk, which task (box 23)."""
+    desk: str
+    task: str
+
+
+class InterruptAnswer(BaseModel):
+    """What the desk said to the user's interrupt: whether it stopped, and why not."""
+    interrupted: bool
+    why: str = ""
+
+
 # ------------------------------------------------------------- the timeline
 
 class Phase(BaseModel):

@@ -1,5 +1,7 @@
 """The map view's server, a FastAPI app: the page in web/, and the newest map
-snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e); with the
+snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e), but for
+the user's Interrupt, which only AutomatU's own page may send and which is passed
+on to a desk (t-5bb672b723); with the
 watcher on it also makes new maps as the work happens (t-3e56993cc4). The
 notices, agents and timeline answers are typed, and their schema is served at
 /api/openapi.json for the page and other agents (t-e7dd1752e3).
@@ -8,11 +10,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import AgentsAnswer, DesksAnswer, NoticesAnswer, Timeline
+from .models import AgentsAnswer, DesksAnswer, InterruptAnswer, InterruptAsk, NoticesAnswer, Timeline
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -157,6 +159,18 @@ async def desks_of() -> dict:
     and what waits on the user, for the Agents tab (box 22, t-2b6d9b3541)."""
     from .desks import desks
     return {"desks": await desks()}
+
+
+@app.post("/api/desks/interrupt", response_model=InterruptAnswer)
+async def interrupt_desk(ask: InterruptAsk, request: Request) -> dict:
+    """The user's Interrupt button (box 23, t-5bb672b723): passed on to the
+    desk, nothing decided here. Only AutomatU's own page may send it - a
+    browser names the page a request comes from, and no other page is this."""
+    origin, host = request.headers.get("origin"), request.headers.get("host", "")
+    if origin not in (f"http://{host}", f"https://{host}"):
+        raise HTTPException(403, "only AutomatU's own page may interrupt an agent")
+    from .desks import interrupt
+    return await interrupt(ask.desk, ask.task)
 
 
 @app.middleware("http")

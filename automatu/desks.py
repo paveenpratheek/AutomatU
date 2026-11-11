@@ -6,6 +6,7 @@ each is on, the agent and model at it, and every permission ask and question
 waiting on the user - is served read-only at /desk/now to a caller with a
 token. AutomatU reads both, with the token Work Desks made for it, and
 writes nothing anywhere: answering stays in the user's chat (t-ae4cb0d0a9).
+The one thing it sends a desk is the user's own interrupt (box 23).
 """
 from __future__ import annotations
 
@@ -84,3 +85,29 @@ async def desks(transport: httpx.AsyncBaseTransport | None = None) -> list[dict]
     token = _token()
     async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as h:
         return list(await asyncio.gather(*(_one(h, u, token) for u in desk_urls())))
+
+
+async def interrupt(url: str, task: str, transport: httpx.AsyncBaseTransport | None = None) -> dict:
+    """The user's own interrupt, passed on to the desk running the task - the
+    one thing AutomatU sends a desk (box 23, t-5bb672b723). AutomatU never
+    decides an interrupt, and never starts, answers or cancels a job itself."""
+    url = (url or "").strip().rstrip("/")
+    if url not in desk_urls():
+        return {"interrupted": False, "why": "not one of the desks AutomatU knows"}
+    if not task or "/" in task:
+        return {"interrupted": False, "why": "no such task"}
+    token = _token()
+    if not token:
+        return {"interrupted": False, "why": "no token for the desks - run workdesks init"}
+    try:
+        async with httpx.AsyncClient(timeout=10, transport=transport) as h:
+            r = await h.post(f"{url}/desk/runs/{task}/interrupt", headers={"Authorization": "Bearer " + token})
+    except httpx.HTTPError:
+        return {"interrupted": False, "why": "the desk is not running"}
+    if r.status_code == 404:
+        return {"interrupted": False, "why": "this desk cannot be interrupted yet - restart it with the new Work Desks"}
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    return {"interrupted": bool(body.get("interrupted")), "why": str(body.get("why") or body.get("error") or "")}

@@ -73,3 +73,36 @@ def test_the_api_serves_them_typed(setup, monkeypatch):
     j = TestClient(app).get("/api/desks").json()
     assert [d["card"]["name"] if d["card"] else None for d in j["desks"]] == ["Resume Maker", "Knowledge Desk", None]
     assert j["desks"][0]["live"]["waiting"][0]["job"] == "remove-analysis"
+
+
+def test_the_users_interrupt_is_passed_on_to_a_listed_desk_with_automatus_token(setup):
+    # box 23, t-5bb672b723: the one thing AutomatU sends a desk, and only to a desk it lists.
+    sent = []
+
+    def handle(req: httpx.Request) -> httpx.Response:
+        sent.append((req.method, str(req.url), req.headers.get("authorization")))
+        return httpx.Response(200, json={"interrupted": True})
+    t = httpx.MockTransport(handle)
+    assert asyncio.run(desks.interrupt("http://rm:1/", "task-1", t)) == {"interrupted": True, "why": ""}
+    assert sent == [("POST", "http://rm:1/desk/runs/task-1/interrupt", "Bearer tok-a")]
+    assert asyncio.run(desks.interrupt("http://elsewhere:9", "task-1", t))["interrupted"] is False
+    assert asyncio.run(desks.interrupt("http://rm:1", "../x/y", t))["interrupted"] is False
+    assert len(sent) == 1, "nothing is sent to a desk AutomatU does not list, nor for a made-up task"
+
+
+def test_only_automatus_own_page_may_interrupt(setup, monkeypatch):
+    from fastapi.testclient import TestClient
+    from automatu.serve import app
+    called = []
+
+    async def fake(desk, task):
+        called.append((desk, task))
+        return {"interrupted": True, "why": ""}
+    monkeypatch.setattr(desks, "interrupt", fake)
+    c = TestClient(app)
+    body = {"desk": "http://rm:1", "task": "task-1"}
+    assert c.post("/api/desks/interrupt", json=body).status_code == 403, "no page named: refused"
+    assert c.post("/api/desks/interrupt", json=body, headers={"origin": "http://evil.example"}).status_code == 403
+    ok = c.post("/api/desks/interrupt", json=body, headers={"origin": "http://testserver"})
+    assert ok.status_code == 200 and ok.json() == {"interrupted": True, "why": ""}
+    assert called == [("http://rm:1", "task-1")]

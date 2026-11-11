@@ -1030,8 +1030,22 @@ function renderDesks() {
 }
 
 function loadDesks() {
-  return fetch('/api/desks').then((r) => r.json()).then((j) => { S.desks = j; if (S.tab === 'agents') renderDesks(); })
-    .catch(() => { S.desks = { desks: [] }; if (S.tab === 'agents') renderDesks(); });
+  return fetch('/api/desks').then((r) => r.json()).then((j) => { S.desks = { ...j, said: S.deskSaid }; if (S.tab === 'agents') renderDesks(); })
+    .catch(() => { S.desks = { desks: [], said: S.deskSaid }; if (S.tab === 'agents') renderDesks(); });
+}
+
+/* The user's Interrupt (box 23, t-5bb672b723): asked once, then passed on to the
+   desk; what the desk says comes back on the tab, and the question in the chat. */
+function interruptDesk(b) {
+  const job = b.dataset.intJob || 'this job';
+  if (!window.confirm(`Interrupt ${job}? The agent stops now, and the desk asks you in your chat what next.`)) return;
+  b.disabled = true; b.textContent = 'Interrupting…';
+  fetch('/api/desks/interrupt', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ desk: b.dataset.intDesk, task: b.dataset.intTask }) })
+    .then((r) => r.json())
+    .then((j) => { S.deskSaid = j.interrupted ? `Interrupted ${job}: answer the desk in your chat.` : `Not interrupted: ${j.why || j.detail || 'the desk said no'}`; })
+    .catch(() => { S.deskSaid = 'Not interrupted: AutomatU could not reach the desk.'; })
+    .then(loadDesks);
 }
 
 /* ------------------------------------------------------------ the open canvas */
@@ -1144,6 +1158,8 @@ document.addEventListener('click', (e) => {
   if (S.drop && !e.target.closest('#drop')) { S.drop = null; renderTop(); }
   const pic = e.target.closest('[data-pic]');
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
+  const intr = e.target.closest('[data-int-task]');
+  if (intr) return interruptDesk(intr);
   const t = e.target.closest('button, polygon, [data-tver], [data-tmap]');
   if (!t) return;
   const d = t.dataset;
