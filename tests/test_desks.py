@@ -164,3 +164,23 @@ def test_the_api_serves_one_run_typed(setup, monkeypatch, runs_transport):
     j = c.get("/api/desks/run", params={"desk": "http://rm:1", "task": "t1"}).json()
     assert j["job"] == "analyse-for-job" and j["steps"][1]["actor"] == "agent" and j["asks"][0]["kind"] == "question"
     assert c.get("/api/desks/run", params={"desk": "http://rm:1", "task": "nope"}).status_code == 404
+
+
+def test_the_boxes_each_desk_tracks_are_read_from_knowledge_desk_with_automatus_token(tmp_path, monkeypatch):
+    (tmp_path / "tokens.json").write_text(json.dumps({"automatu": "tok-a"}), encoding="utf8")
+    monkeypatch.setenv("AUTOMATU_WORKDESKS_TOKENS", str(tmp_path / "tokens.json"))
+    monkeypatch.setenv("AUTOMATU_DESKS", "http://kd:2")
+    row = {"desk": "portfolio", "desk_name": "Portfolio", "hex": "h:Proj/tm-1/14. Typed data",
+           "address": "Plan (totem) > 14. Typed data", "canvas": "Proj", "state": "changed", "read_at": "2026-11-12T09:00:00Z"}
+
+    def handle(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/.well-known/agent-card.json":
+            return httpx.Response(200, json={**CARD, "name": "Knowledge Desk", "skills": []})
+        if req.url.path == "/knowledge/tracking":
+            ok = req.headers.get("authorization") == "Bearer tok-a"
+            return httpx.Response(200, json={"tracked": [row]}) if ok else httpx.Response(401)
+        return httpx.Response(404)
+    (kd,) = asyncio.run(desks.desks(httpx.MockTransport(handle)))
+    assert kd["tracking"] == [row]
+    from automatu.models import Desk
+    assert Desk.model_validate(kd).tracking[0].state == "changed"

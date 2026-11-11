@@ -155,12 +155,25 @@ class DeskRecent(BaseModel):
     said: str = ""
 
 
+class DeskTracked(BaseModel):
+    """A box a desk tracks, as Knowledge Desk serves it (K4): same, changed or
+    gone since the desk's agent read it (t-e8412b6296)."""
+    desk: str
+    desk_name: str = ""
+    hex: str
+    address: str = ""
+    canvas: str = ""
+    state: str           # same, changed, gone
+    read_at: str = ""
+
+
 class Desk(BaseModel):
     url: str
     up: bool
     card: DeskCard | None = None
     live: DeskLive | None = None
     recent: list[DeskRecent] = []
+    tracking: list[DeskTracked] = []
     note: str = ""
 
 

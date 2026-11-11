@@ -131,3 +131,23 @@ test('a card lists its runs lately, each opening its run view', () => {
   assert.match(h, /data-run-task="old"[^>]*><b>produce<\/b> · <span class="dk-done">completed/);
   assert.equal((h.match(/data-run-task="t1"/g) || []).length, 1, 'a job going now is under Now only');
 });
+
+test('a box a desk tracks that changed or went rings the bell, keyed so a new change rings again', async () => {
+  const { deskEvents, eventsHtml } = await import('./desks.js');
+  const KD = { url: 'http://127.0.0.1:7796', card: { name: 'Knowledge Desk' }, recent: [], tracking: [
+    { desk: 'portfolio', desk_name: 'Portfolio', hex: 'h:Proj/tm-1/14. Typed data', address: 'Plan (totem) > 14. Typed data', canvas: 'Proj', state: 'changed', read_at: '2026-11-11T09:05:00Z' },
+    { desk: 'portfolio', desk_name: 'Portfolio', hex: 'h:Proj/tm-1/3. Map view', address: 'Plan (totem) > 3. Map view', canvas: 'Proj', state: 'same', read_at: '2026-11-11T09:05:00Z' },
+    { desk: 'portfolio', desk_name: 'Portfolio', hex: 'h:Proj/tm-1/9. Old', address: 'Plan (totem) > 9. Old', canvas: 'Proj', state: 'gone', read_at: '2026-11-11T10:04:50Z' }] };
+  const ev = deskEvents({ desks: [KD] });
+  assert.deepEqual(ev.map((e) => [e.kind, e.state]), [['track', 'changed'], ['track', 'gone']]);
+  const html = eventsHtml(ev, new Set([ev[1].key]), NOW);
+  assert.match(html, /Boxes the desks track/);
+  assert.match(html, /<b>Portfolio<\/b>: 14\. Typed data changed since its agent read it/);
+  assert.match(html, /read 1 h ago · its agent is told/);
+  assert.match(html, /9\. Old is gone from its canvas/);
+  assert.match(html, /read just now ·/);
+  assert.equal((html.match(/dk-ev new/g) || []).length, 1, 'one seen, one new');
+  assert.doesNotMatch(html, /Agents' jobs/, 'no jobs, no jobs heading');
+  const again = deskEvents({ desks: [{ ...KD, tracking: [{ ...KD.tracking[0], read_at: '2026-11-11T10:00:00Z' }] }] });
+  assert.notEqual(again[0].key, ev[0].key, 'changed again after it was read: a new event');
+});

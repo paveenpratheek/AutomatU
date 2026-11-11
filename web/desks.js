@@ -163,9 +163,17 @@ const RANG = { waiting: 'is waiting on you', failed: 'failed', completed: 'finis
 /* A desk's runs that ring the bell: waiting on the user, failed or finished.
    Each is keyed by its task, state and what it said, so a second question on
    the same task rings again. */
+const MOVED = { changed: 'changed since its agent read it', gone: 'is gone from its canvas' };
+
 export function deskEvents(answer) {
   const out = [];
   for (const d of (answer && answer.desks) || []) {
+    /* K4: a box a desk tracks that changed or went since its agent read it. */
+    for (const t of d.tracking || []) {
+      if (!MOVED[t.state]) continue;
+      out.push({ kind: 'track', key: `track|${t.desk}|${t.hex}|${t.state}|${t.read_at}`, desk: t.desk_name || t.desk,
+        hex: t.hex, address: t.address, state: t.state, at: t.read_at });
+    }
     for (const r of d.recent || []) {
       if (!RANG[r.state]) continue;
       out.push({ key: `${r.task_id}|${r.state}|${r.said}`, desk: (d.card && d.card.name) || d.url, url: d.url,
@@ -177,8 +185,18 @@ export function deskEvents(answer) {
 
 export function eventsHtml(events, seen, now = Date.now()) {
   if (!events.length) return '';
-  return '<h3>Agents\' jobs</h3>' + events.map((e) =>
+  const moved = events.filter((e) => e.kind === 'track'), jobs = events.filter((e) => e.kind !== 'track');
+  return (moved.length ? '<h3>Boxes the desks track</h3>' + moved.map((e) =>
+    `<div class="row dk-ev${seen.has(e.key) ? '' : ' new'}" title="${esc(e.hex)}">` +
+    `<span class="nm"><b>${esc(e.desk)}</b>: ${esc(String(e.address || e.hex).split(' > ').pop())} ${esc(MOVED[e.state])}</span>` +
+    `<span class="mt">${esc([readAgo(e.at, now), 'its agent is told when it next asks Knowledge Desk'].filter(Boolean).join(' · '))}</span></div>`).join('') : '') +
+    (jobs.length ? '<h3>Agents\' jobs</h3>' + jobs.map((e) =>
     `<button type="button" class="row dk-ev${seen.has(e.key) ? '' : ' new'}" data-run-desk="${esc(e.url)}" data-run-task="${esc(e.task)}" title="Open the run, step by step">` +
     `<span class="nm"><b>${esc(e.desk)}</b>: ${esc(e.job === 'chat' ? 'a message' : e.job)} ${esc(RANG[e.state])}</span>` +
-    `<span class="mt">${esc(ago(e.at, now))}${e.said ? ' · ' + esc(e.said.slice(0, 120)) : ''}</span></button>`).join('');
+    `<span class="mt">${esc(ago(e.at, now))}${e.said ? ' · ' + esc(e.said.slice(0, 120)) : ''}</span></button>`).join('') : '');
+}
+
+function readAgo(at, now) {
+  const a = ago(at, now);
+  return !a ? '' : a === 'just now' ? 'read just now' : `read ${a} ago`;
 }

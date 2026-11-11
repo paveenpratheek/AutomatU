@@ -198,6 +198,10 @@ The Main map, `find`, `box`, `shelf` and the MCP `canvases` tool cover exactly
 those, bound to a repository or not; Knowledge Desk indexes the same list.
 Binding adds its canvas, and a bound canvas stays while the binding does.
 
+The bell also rings for each box a desk tracks that changed or went since its
+agent read it, read from Knowledge Desk's `/knowledge/tracking` with
+AutomatU's token (t-e8412b6296).
+
 Built features (each explained on the canvas in **AutomatU: how it works**):
 binding a repository to its canvas and plan totem; reading GitX through a Node
 bridge (`automatu/gitx_bridge.mjs`, never code text); reading the canvas

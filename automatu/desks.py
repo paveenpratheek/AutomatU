@@ -7,6 +7,10 @@ waiting on the user - is served read-only at /desk/now to a caller with a
 token. AutomatU reads both, with the token Work Desks made for it, and
 writes nothing anywhere: answering stays in the user's chat (t-ae4cb0d0a9).
 The one thing it sends a desk is the user's own interrupt (box 23).
+
+Knowledge Desk also serves the boxes each desk tracks at /knowledge/tracking;
+a box that changed or went since its desk's agent read it rings the bell
+(K4, t-e8412b6296).
 """
 from __future__ import annotations
 
@@ -66,6 +70,12 @@ async def _one(h: httpx.AsyncClient, url: str, token: str | None) -> dict:
         out["note"] = "no token to read what it is doing - run workdesks init"
         return out
     try:
+        r = await h.get(url + "/knowledge/tracking", headers={"Authorization": "Bearer " + token})
+        if r.status_code == 200:
+            out["tracking"] = [_tracked(x) for x in r.json().get("tracked") or []]
+    except (httpx.HTTPError, ValueError):
+        pass   # a desk that tracks nothing, or an older Knowledge Desk
+    try:
         r = await h.get(url + "/desk/now", headers={"Authorization": "Bearer " + token})
         if r.status_code == 404:
             out["note"] = "keeps no record of its runs"
@@ -85,6 +95,12 @@ async def _one(h: httpx.AsyncClient, url: str, token: str | None) -> dict:
 
 def _s(v) -> str:
     return "" if v is None else str(v)
+
+
+def _tracked(x: dict) -> dict:
+    return {"desk": _s(x.get("desk")), "desk_name": _s(x.get("desk_name")), "hex": _s(x.get("hex")),
+            "address": _s(x.get("address")), "canvas": _s(x.get("canvas")), "state": _s(x.get("state")),
+            "read_at": _s(x.get("read_at"))}
 
 
 def _recent(r: dict) -> dict:
