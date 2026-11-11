@@ -415,3 +415,54 @@ button { font: inherit; color: inherit; }
 .dk-foot { margin-top: 10px; font: 11px var(--mono); color: var(--ink-3, #8A8E95); }
 .dk-ev.new .nm { font-weight: 600; }
 .dk-ev.new::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--hot); margin-right: 6px; }
+
+/* ---------- the Workflows editor (box 20) */
+.wf-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.wf-pick { font-size: 13px; padding: 5px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; }
+.wf-pick.on { border-color: var(--link); box-shadow: 0 0 0 2px #DCE7F7; }
+.wf-pick:disabled { opacity: 0.55; cursor: default; }
+.wf-ver { font: 10px var(--mono); color: var(--ink-3, #6A6E75); }
+.wf-sub { font-size: 13px; color: var(--ink-3, #4A4E55); margin: 2px 0 6px; }
+.wf-flow { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 12px; background: repeating-linear-gradient(0deg, transparent 0 23px, #F1EFEA 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, #F1EFEA 23px 24px); }
+.wf-canvas { position: relative; }
+.wf-wires { position: absolute; left: 0; top: 0; pointer-events: none; }
+.wf-wire { stroke: #8A8E95; stroke-width: 2; fill: none; }
+.wf-wires marker path { fill: #8A8E95; }
+.wf-loop { stroke: #C98A1E; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+#wf-arrow-loop path { fill: #C98A1E; }
+.wf-looplabel { font: 10px var(--mono); fill: #9A5B00; }
+.wf-stopmark circle { fill: #FFF7E6; stroke: var(--hot); stroke-width: 1.5; }
+.wf-stopmark text { font-size: 10px; fill: #9A5B00; }
+.wf-node { position: absolute; width: 210px; box-sizing: border-box; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; font-size: 12px; box-shadow: 0 1px 3px rgba(20, 20, 19, 0.08); display: flex; flex-direction: column; gap: 4px; }
+.wf-a-agent { border-top: 3px solid #4F7BD9; }
+.wf-a-code { border-top: 3px solid #8A8E95; }
+.wf-a-user { border-top: 3px solid var(--hot); }
+.wf-nh { display: flex; gap: 6px; align-items: baseline; }
+.wf-nh b { font-size: 13px; }
+.wf-num { font: 600 10px var(--mono); color: #fff; background: #6A6E75; border-radius: 9px; padding: 1px 6px; }
+.wf-who { font: 11px var(--mono); color: var(--ink-3, #6A6E75); }
+.wf-what { margin: 0; color: #3A3E45; line-height: 1.35; }
+.wf-opt { font-size: 11px; color: #3A3E45; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.wf-opt select, .wf-opt input[type=number] { font-size: 11px; max-width: 120px; }
+.wf-opt input[type=number] { width: 42px; }
+.wf-ctl { display: flex; gap: 4px; margin-top: auto; }
+.wf-ctl button { font-size: 11px; padding: 1px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; }
+.wf-ctl button:disabled { opacity: 0.4; cursor: default; }
+.wf-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0; }
+.wf-actions input[type=text] { flex: 1 1 220px; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.wf-actions button, .wf-grant button, .wf-save { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; }
+.wf-save { border-color: var(--link); color: var(--link); font-weight: 600; }
+.wf-actions button:disabled, .wf-save:disabled { opacity: 0.45; cursor: default; }
+.wf-refused { background: #FFF4F2; border: 1px solid #E8B4AD; border-radius: 8px; padding: 6px 10px; font-size: 13px; color: #7A2A22; margin: 8px 0; }
+.wf-refused ul { margin: 4px 0 0 18px; padding: 0; }
+.wf-palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.wf-palette button { font-size: 12px; padding: 4px 10px; border: 1px dashed #8A8E95; border-radius: 8px; background: transparent; cursor: pointer; }
+.wf-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 14px; }
+.wf-rules, .wf-hist { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+.wf-rules li, .wf-hist li { padding: 4px 0; border-top: 1px solid var(--line); }
+.wf-hist button { font: 600 11px var(--mono); border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; }
+.wf-grant { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; margin: 6px 0; }
+.wf-grant > span:first-child { font-weight: 600; }
+.wf-grant input[type=text] { font-size: 12px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; width: 120px; }
+.wf-chip { background: #EEF3FB; border: 1px solid #C9D8F0; border-radius: 12px; padding: 1px 4px 1px 8px; }
+.wf-chip button { border: 0; background: transparent; cursor: pointer; font-size: 11px; padding: 0 4px; }

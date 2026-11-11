@@ -18,6 +18,7 @@ import { layoutNet, edgeStyle, KCOL } from './thoughtnet.js';
 import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, mapAtOrBefore, hexChanges, popDelay } from './timeline.js';
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
+import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -937,12 +938,14 @@ function renderChrome() {
   const target = S.m ? boardTarget() : null;
   $('tabs').innerHTML = [['Main', 'main', 'The hexagon map: find things'], ['Code', 'code', 'The code map: the plan and its code'],
     ['Canvas', 'canvas', target ? 'Open the ' + S.m.reg[target].name + ' canvas, as CanvasX shows it' : 'Pick a canvas on the map first'],
-    ['Agents', 'agents', 'Each desk as its Agent Card: what it is doing, and what waits on you']].map(([l, k, why]) =>
+    ['Agents', 'agents', 'Each desk as its Agent Card: what it is doing, and what waits on you'],
+    ['Workflows', 'workflows', "Arrange each desk job's flow, and what each desk may do"]].map(([l, k, why]) =>
     `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}" title="${esc(why)}"${k === 'canvas' && !target ? ' disabled' : ''}>${l}</button>`).join('');
   let crumbs;
   if (S.tab === 'main' && S.m) crumbs = S.path.filter((id) => S.m.reg[id]).map((id, i, arr) => ({ name: S.m.reg[id].name, go: i < arr.length - 1 ? 'path:' + i : '' }));
   else if (S.tab === 'canvas' && S.m && S.bcanvas) crumbs = [{ name: 'Map', go: 'path:0' }, { name: S.m.reg[S.bcanvas].name, go: 'canvas:' + S.bcanvas }, { name: 'Open canvas', go: '' }];
   else if (S.tab === 'agents') crumbs = [{ name: 'Agents', go: '' }];
+  else if (S.tab === 'workflows') crumbs = [{ name: 'Workflows', go: '' }];
   else crumbs = [{ name: 'Code map', go: '' }].concat(S.repo ? [{ name: S.repo.split('/').pop(), go: '' }] : []);
   $('crumbs').innerHTML = crumbs.map((c, i) => (i ? '<span class="arrow" aria-hidden="true">›</span>' : '') + `<button type="button" class="crumb${c.go ? '' : ' last'}" data-crumb="${c.go}">${esc(c.name)}</button>`).join('');
   const shown = Q.kw.map((k, i) => ({ k, i })).filter(({ i }) => Q.on[i].shown);
@@ -1019,10 +1022,11 @@ function openNoticeRegion(repo, rid) {
 
 export function render() {
   renderChrome();
-  $('panel').hidden = S.tab === 'canvas' || S.tab === 'agents' || (S.tab === 'code' && !!S.net);
+  $('panel').hidden = S.tab === 'canvas' || S.tab === 'agents' || S.tab === 'workflows' || (S.tab === 'code' && !!S.net);
   if (S.tab === 'code') renderCode();
   else if (S.tab === 'canvas') renderBoard();
   else if (S.tab === 'agents') renderDesks();
+  else if (S.tab === 'workflows') renderWorkflows();
   else renderMain();
 }
 
@@ -1090,6 +1094,102 @@ function interruptDesk(b) {
     .catch(() => { S.deskSaid = 'Not interrupted: AutomatU could not reach the desk.'; })
     .then(loadDesks);
 }
+
+/* ------------------------------------------------------------ the desks' workflows (box 20) */
+
+/* The Workflows tab (box 20, t-d966145acd): a desk job's flow, arranged here,
+   checked by the desk on save, kept by AutomatU in time; and the desk's grants. */
+function renderWorkflows() { $('stage').innerHTML = editorHtml(S.wf); }
+
+function openWorkflows() {
+  S.wf = S.wf || {};
+  const pick = () => {
+    S.wf.desks = ((S.desks && S.desks.desks) || []);
+    if (!S.wf.desk) { const d = S.wf.desks.find((x) => x.up && x.live); if (d) return loadWorkflows(d.url); }
+    if (S.tab === 'workflows') renderWorkflows();
+  };
+  return (S.desks ? Promise.resolve() : loadDesks()).then(pick);
+}
+
+function loadWorkflows(url, keepJob) {
+  const W = S.wf;
+  W.desk = url; W.data = null; W.error = ''; W.problems = []; W.said = ''; W.grantsSaid = '';
+  if (S.tab === 'workflows') renderWorkflows();
+  return fetch('/api/workflows?desk=' + encodeURIComponent(url))
+    .then((r) => r.json().then((j) => (r.ok ? j : Promise.reject(new Error(j.detail || r.statusText)))))
+    .then((j) => {
+      W.data = j;
+      const jobs = Object.keys(j.catalogue.jobs);
+      if (!keepJob || !jobs.includes(W.job)) W.job = jobs[0];
+      startDraft();
+      const g = j.current.grants || j.catalogue.grants || {};
+      W.grants = { writes: [...(g.writes || [])], asks: [...(g.asks || [])] };
+    })
+    .catch((e) => { W.error = 'Could not read the desk: ' + e.message; })
+    .then(() => { if (S.tab === 'workflows') renderWorkflows(); });
+}
+
+function startDraft(steps) {
+  const W = S.wf, cur = W.data.current.jobs[W.job];
+  W.draft = normal(steps || (cur ? cur.arrangement.steps : W.data.catalogue.jobs[W.job].steps));
+}
+
+function post(path, body) {
+  return fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then((r) => r.json());
+}
+
+function workflowsClick(el) {
+  const W = S.wf, a = el.dataset.wf, i = +el.dataset.i, v = el.dataset.v;
+  W.said = ''; W.problems = [];
+  if (a === 'desk') return loadWorkflows(v);
+  if (a === 'job') { W.job = v; startDraft(); }
+  else if (a === 'move') W.draft = moveStep(W.draft, i, +v);
+  else if (a === 'remove') W.draft = removeStep(W.draft, i);
+  else if (a === 'add') W.draft = addStep(W.draft, v);
+  else if (a === 'discard') startDraft();
+  else if (a === 'default') { W.draft = normal(W.data.catalogue.jobs[W.job].steps); W.said = "The desk's default is in the editor: save it to run it again."; }
+  else if (a === 'load') {
+    const h = (W.data.history.jobs[W.job] || []).find((x) => String(x.version) === v);
+    if (h) { W.draft = normal(h.steps); W.said = `Version ${v} is in the editor: save it to run it again.`; }
+  } else if (a === 'save') {
+    el.disabled = true;
+    return post('/api/workflows/save', { desk: W.desk, job: W.job, steps: toSave(W.draft), note: W.note || '' })
+      .then((r) => {
+        if (r.saved) { W.note = ''; return loadWorkflows(W.desk, true).then(() => { W.said = `Saved as v${r.version}: the next run of ${W.job} runs it.`; renderWorkflows(); }); }
+        W.problems = r.problems || [r.detail || 'not saved']; renderWorkflows();
+      }).catch(() => { W.problems = ['AutomatU could not reach the desk.']; renderWorkflows(); });
+  } else if (a === 'unwrite') W.grants.writes.splice(i, 1);
+  else if (a === 'addcanvas') {
+    const box = document.querySelector('[data-wf="newcanvas"]'), name = box ? box.value.trim() : '';
+    if (name && !W.grants.writes.includes(name)) W.grants.writes.push(name);
+  } else if (a === 'savegrants') {
+    el.disabled = true;
+    return post('/api/workflows/grants', { desk: W.desk, writes: W.grants.writes, asks: W.grants.asks })
+      .then((r) => {
+        if (r.saved) return loadWorkflows(W.desk, true).then(() => { W.grantsOk = true; W.grantsSaid = `Saved as v${r.version}: the desk holds to it from its next message.`; renderWorkflows(); });
+        W.grantsOk = false; W.grantsSaid = 'The desk refused them: ' + (r.problems || []).join('; '); renderWorkflows();
+      });
+  }
+  renderWorkflows();
+}
+
+function workflowsChange(el) {
+  const W = S.wf, a = el.dataset.wf, i = +el.dataset.i;
+  if (a === 'stop') W.draft = setPlaced(W.draft, i, { stop_before: el.checked });
+  else if (a === 'back') W.draft = setPlaced(W.draft, i, { back_to: el.value === W.draft[i].step ? null : el.value });
+  else if (a === 'tries') W.draft = setPlaced(W.draft, i, { tries: Math.max(1, Math.min(5, +el.value || 1)) });
+  else if (a === 'ask') W.grants.asks = el.checked ? [...new Set(W.grants.asks.concat([el.dataset.v]))] : W.grants.asks.filter((x) => x !== el.dataset.v);
+  else if (a === 'note') { W.note = el.value; return; }
+  else return;
+  W.said = ''; W.problems = [];
+  renderWorkflows();
+}
+
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('[data-wf]');
+  if (el && S.tab === 'workflows') workflowsChange(el);
+});
 
 /* ------------------------------------------------------------ the open canvas */
 
@@ -1203,6 +1303,8 @@ document.addEventListener('click', (e) => {
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
   const intr = e.target.closest('[data-int-task]');
   if (intr) return interruptDesk(intr);
+  const wfb = e.target.closest('button[data-wf]');
+  if (wfb && S.tab === 'workflows') return workflowsClick(wfb);
   const opener = e.target.closest('[data-run-task]');
   if (opener) return openDeskRun(opener.dataset.runDesk, opener.dataset.runTask);
   if (e.target.closest('[data-run-back]')) { S.deskRun = null; return render(); }
@@ -1218,7 +1320,7 @@ document.addEventListener('click', (e) => {
   if (d.tab) {
     if (S.tab !== d.tab) {
       if (d.tab === 'canvas') { const t = boardTarget(); if (t !== S.bcanvas) S.bview = null; S.bcanvas = t; }
-      S.tab = d.tab; if (d.tab === 'code') loadCode(); if (d.tab === 'agents') loadDesks(); render();
+      S.tab = d.tab; if (d.tab === 'code') loadCode(); if (d.tab === 'agents') loadDesks(); if (d.tab === 'workflows') openWorkflows(); render();
     }
     return;
   }

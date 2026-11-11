@@ -1,7 +1,8 @@
 """The map view's server, a FastAPI app: the page in web/, and the newest map
 snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e), but for
-the user's Interrupt, which only AutomatU's own page may send and which is passed
-on to a desk (t-5bb672b723); with the
+what the user does on AutomatU's own page, and only from it: an Interrupt passed
+on to a desk (t-5bb672b723), and the desks' workflows and grants the user
+arranges, kept in AutomatU's store once the desk accepts them (t-d966145acd); with the
 watcher on it also makes new maps as the work happens (t-3e56993cc4). The
 notices, agents and timeline answers are typed, and their schema is served at
 /api/openapi.json for the page and other agents (t-e7dd1752e3).
@@ -14,7 +15,8 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import AgentsAnswer, DeskRunDetail, DesksAnswer, InterruptAnswer, InterruptAsk, NoticesAnswer, Timeline
+from .models import (AgentsAnswer, ArrangementSave, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
+                     InterruptAsk, NoticesAnswer, SaveAnswer, Timeline)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -176,11 +178,58 @@ async def interrupt_desk(ask: InterruptAsk, request: Request) -> dict:
     """The user's Interrupt button (box 23, t-5bb672b723): passed on to the
     desk, nothing decided here. Only AutomatU's own page may send it - a
     browser names the page a request comes from, and no other page is this."""
-    origin, host = request.headers.get("origin"), request.headers.get("host", "")
-    if origin not in (f"http://{host}", f"https://{host}"):
-        raise HTTPException(403, "only AutomatU's own page may interrupt an agent")
+    _own_page(request, "interrupt an agent")
     from .desks import interrupt
     return await interrupt(ask.desk, ask.task)
+
+
+def _own_page(request: Request, what: str) -> None:
+    """A call that changes something is taken only from AutomatU's own page:
+    a browser names the page a request comes from, and no other page is this."""
+    origin, host = request.headers.get("origin"), request.headers.get("host", "")
+    if origin not in (f"http://{host}", f"https://{host}"):
+        raise HTTPException(403, f"only AutomatU's own page may {what}")
+
+
+# ------------------------------------------------------------ the desks' workflows (box 20, t-d966145acd)
+
+@app.get("/api/workflows")
+async def workflows_of(desk: str) -> dict:
+    """What the Workflows editor needs for a desk: its steps, jobs, rules and
+    grants, what the user arranged for it, and every version before."""
+    from .workflows import DeskError, of
+    try:
+        return await of(desk)
+    except DeskError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.post("/api/workflows/save", response_model=SaveAnswer)
+async def workflows_save(ask: ArrangementSave, request: Request) -> dict:
+    _own_page(request, "save a workflow")
+    from .workflows import DeskError, save
+    try:
+        return await save(ask.desk, ask.job, ask.steps, ask.note)
+    except DeskError as e:
+        return {"saved": False, "problems": [str(e)]}
+
+
+@app.post("/api/workflows/grants", response_model=SaveAnswer)
+async def workflows_grants(ask: GrantsSave, request: Request) -> dict:
+    _own_page(request, "change what a desk may do")
+    from .workflows import DeskError, save_grants
+    try:
+        return await save_grants(ask.desk, ask.writes, ask.asks)
+    except DeskError as e:
+        return {"saved": False, "problems": [str(e)]}
+
+
+@app.get("/api/arrangements/current")
+def arrangements_current(desk: str) -> dict:
+    """What a desk reads at the start of each run: the newest arrangement of
+    each of its jobs, and its newest grants (Work Desks box 14)."""
+    from .workflows import current
+    return current(desk)
 
 
 @app.middleware("http")

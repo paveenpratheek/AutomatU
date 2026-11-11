@@ -203,6 +203,27 @@ class DesksAnswer(BaseModel):
     desks: list[Desk]
 
 
+class ArrangementSave(BaseModel):
+    """The editor's Save: a job's steps for a desk (box 20, t-d966145acd)."""
+    desk: str
+    job: str
+    steps: list[dict]
+    note: str = ""
+
+
+class GrantsSave(BaseModel):
+    """The editor's grants for a desk: canvases its agent may write, desks it may ask (t-7d4389282b)."""
+    desk: str
+    writes: list[str] = []
+    asks: list[str] = []
+
+
+class SaveAnswer(BaseModel):
+    saved: bool
+    version: int | None = None
+    problems: list[str] = []
+
+
 class InterruptAsk(BaseModel):
     """The user's interrupt from the Agents tab: which desk, which task (box 23)."""
     desk: str
