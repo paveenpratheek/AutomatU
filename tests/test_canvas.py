@@ -105,3 +105,14 @@ def test_a_canvas_name_cannot_walk_out_of_the_workspace(tmp_path, monkeypatch):
     _workspace(tmp_path, monkeypatch, [])
     with pytest.raises(ValueError):
         canvas_files("../Plan")
+
+
+def test_a_hex_citation_and_a_totem_id_are_kept_whole():
+    # A totem id's hex part has a digit and a letter, like a commit hash: it was cut out,
+    # leaving citations that point to no box (t-6408fcd85b).
+    text = "- FastAPI and Pydantic [h:AutomatU/tm-a39e299aa1/14. Typed data] (8d3337b)\n- see totem tm-4d97673ded"
+    words, cites = without_ids(text)
+    assert "[h:AutomatU/tm-a39e299aa1/14. Typed data]" in words
+    assert "tm-4d97673ded" in words
+    assert cites == ["8d3337b"], "the totem ids are no commits"
+    assert "8d3337b" not in words, "commit hashes still go beside the words"

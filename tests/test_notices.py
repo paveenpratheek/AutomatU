@@ -18,6 +18,7 @@ def plan(*boxes):
 def test_a_box_is_built_by_the_commits_on_its_ticked_lines():
     assert ticks_of("Built: - [x] The timeline (f436f41)\n- [ ] Later (t-6da95e49a7)\n- [x] Smooth (db79022, t-a6d44609ab)") == ["f436f41", "db79022"]
     assert ticks_of("- [x] Relations worked out (2445954)\n- [x] a group past 7 boxes splits (user)") == ["2445954"], "a hash of digits only"
+    assert ticks_of("- [x] Typed [h:AutomatU/tm-a39e299aa1/14. Typed data] (8d3337b)") == ["8d3337b"], "a citation's totem id is no tick"
     s = plan(("1. Read", "- [x] Reading GitX (9ef89d9)"))[0]
     assert s.ticks == ["9ef89d9"] and "9ef89d9" not in s.words, "the hash is a tick, never words alignment could place by"
 

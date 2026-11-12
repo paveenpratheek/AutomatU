@@ -136,9 +136,27 @@ def parse_script(script: str) -> Node:
 # plan says, never by an id that names the answer (t-71b7c1ee34).
 _THOUGHT_ID = re.compile(r"\bt-[0-9a-f]{10}\b")
 _COMMIT_ID = re.compile(r"\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+# A hex citation an agent wrote on a canvas, and a totem's lasting id, are not
+# GitX ids: kept whole, or the hex part of the totem id read as a commit hash
+# and was cut out, leaving citations that point to no box (t-6408fcd85b).
+_KEPT = re.compile(r"\[h:[^\]\n]*\]|\btm-[0-9a-f]{6,}\b")
+
+
+def _set_aside(text: str) -> tuple[str, list[str]]:
+    kept: list[str] = []
+
+    def keep(m):
+        kept.append(m.group(0))
+        return f"\x00{len(kept) - 1}\x00"
+    return _KEPT.sub(keep, text), kept
+
+
+def _put_back(text: str, kept: list[str]) -> str:
+    return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
 
 
 def without_ids(text: str) -> tuple[str, list[str]]:
+    text, kept = _set_aside(text)
     # Thought ids first: the hex inside a thought id would read as a commit hash (t-d7f5f0b312).
     no_thoughts = _THOUGHT_ID.sub("", text)
     cites = list(dict.fromkeys(_THOUGHT_ID.findall(text) + _COMMIT_ID.findall(no_thoughts)))
@@ -146,7 +164,7 @@ def without_ids(text: str) -> tuple[str, list[str]]:
     words = re.sub(r"\(\s*[,;\s]*\)", "", words)
     words = re.sub(r"[ \t]+([,.;:)])", r"\1", words)
     words = re.sub(r"[ \t]{2,}", " ", words).strip()
-    return words, cites
+    return _put_back(words, kept), cites
 
 
 def ticks_of(text: str) -> list[str]:
@@ -155,6 +173,7 @@ def ticks_of(text: str) -> list[str]:
     out: list[str] = []
     for line in text.splitlines():
         if "[x]" in line.lower():
+            line = _KEPT.sub("", line)   # a citation's totem id is no commit
             line = _THOUGHT_ID.sub("", line)
             out += _COMMIT_ID.findall(line)
             # A short hash can be all digits (2445954); in a tick's brackets it is still a commit.
