@@ -390,12 +390,15 @@ class RelatedBox(BaseModel):
 
 
 class Decision(BaseModel):
-    """A thought the box's words or its code carry, as GitX holds it."""
+    """A thought the box's words or its code carry, as GitX holds it - and the
+    later thought that superseded it, if one did, so no reader takes it for how
+    things are now (t-5df729e232)."""
     id: str
     kind: str | None
     outcome: str | None
     settled_in: str
     text: str
+    superseded_by: str | None = None
 
 
 class Hex(BaseModel):

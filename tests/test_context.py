@@ -92,3 +92,12 @@ def test_a_canvas_the_user_did_not_add_is_not_served(monkeypatch):
         context.shelf("Secret")
     with pytest.raises(ValueError, match="not in AutomatU"):
         context.box_context("1", canvas="Secret")
+
+
+def test_a_decision_names_the_later_thought_that_superseded_it():
+    from types import SimpleNamespace as T
+    from automatu.models import Decision
+    thoughts = {"t-new": T(id="t-new", links=[{"type": "supersedes", "to": "t-old"}, {"type": "refines", "to": "t-other"}]),
+                "t-old": T(id="t-old", links=[]), "t-other": T(id="t-other", links=None)}
+    assert context._superseded(thoughts) == {"t-old": "t-new"}, "only supersedes counts, not refines"
+    assert Decision(id="t-x", kind="decision", outcome="accepted", settled_in="abc1234", text="x").superseded_by is None

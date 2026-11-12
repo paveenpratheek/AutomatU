@@ -19,6 +19,11 @@ MAX_STACK = 30      # regions listed under a box; the rest are counted
 MAX_DECISIONS = 20
 
 
+def _superseded(thoughts: dict) -> dict[str, str]:
+    """Each thought a later one superseded -> the id of the one that did (t-5df729e232)."""
+    return {l["to"]: t.id for t in thoughts.values() for l in (t.links or []) if l.get("type") == "supersedes" and l.get("to")}
+
+
 # ------------------------------------------------------------- hex locations
 
 def hex_of(canvas: str, script: str, s, ids: dict[str, str] | None = None) -> Hex:
@@ -214,7 +219,8 @@ def shelf(canvas: str) -> ShelfAnswer:
         for tid in want:
             t = thoughts.get(tid)
             if t is not None and len(decisions) < MAX_DECISIONS:
-                decisions.append(Decision(id=t.id, kind=t.kind, outcome=t.outcome, settled_in=t.resulted[:7], text=t.text[:400]))
+                decisions.append(Decision(id=t.id, kind=t.kind, outcome=t.outcome, settled_in=t.resulted[:7], text=t.text[:400],
+                                          superseded_by=_superseded(thoughts).get(t.id)))
         boxes.append(ShelfBox(hex=hex_of(canvas, script, s, ids), name=s.name, words=s.words, built_by=list(s.ticks),
                               plans=plans_of.get(s.address, []), regions=stack, regions_more=max(0, len(regs) - len(stack)),
                               decisions=decisions, in_plan=plan_totems.get(s.totem, [])))
@@ -255,7 +261,8 @@ def _stack(plans: list[str], s) -> tuple[list[StackRegion], int, list[Decision],
         for tid in want:
             t = r.thoughts.get(tid)
             if t and len(decisions) < MAX_DECISIONS:
-                decisions.append(Decision(id=t.id, kind=t.kind, outcome=t.outcome, settled_in=t.resulted[:7], text=t.text[:400]))
+                decisions.append(Decision(id=t.id, kind=t.kind, outcome=t.outcome, settled_in=t.resulted[:7], text=t.text[:400],
+                                          superseded_by=_superseded(r.thoughts).get(t.id)))
         return stack, max(0, count - len(stack)), decisions, behind
     return stack, 0, [], behind
 
