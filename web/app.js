@@ -1069,6 +1069,14 @@ export function render() {
 
 /* The Agents tab (box 22, t-2b6d9b3541): read from /api/desks, which reads each
    desk's Agent Card and what it is doing; refreshed while the tab is open. */
+/* Someone is typing in this part of the page: a text box there has focus. A
+   button or a menu that was just used does not count, or a click on Save
+   would never show what came of it. */
+function typingIn(sel) {
+  const a = document.activeElement;
+  return !!(a && a.matches && a.matches('textarea, input:not([type=checkbox]):not([type=radio])') && a.closest(sel));
+}
+
 function kdStage(html) {
   $('stage').innerHTML = `<div class="kdpage">${kdBarHtml(S.kdSec, S.kd)}<div class="kdbody">${html}</div></div>`;
 }
@@ -1090,8 +1098,7 @@ function renderDesks() {
     return;
   }
   /* Keep what is being typed in the form: redraw it only when nothing in it has focus. */
-  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('[data-kdform]');
-  if (typing) return;
+  if (typingIn('[data-kdform]')) return;
   kdStage(kdDesksHtml(S.kd, S.kdForm, addedCanvases(), S.kdSaid) +
     `<section class="kd"><h2>Desks with an agent hosted</h2></section>` +
     (S.desks ? desksHtml(S.desks) : '<div class="status">Looking for the desks…</div>'));
@@ -1198,8 +1205,7 @@ function interruptDesk(b) {
    checked by the desk on save, kept by AutomatU in time; and the desk's grants. */
 function renderWorkflows() {
   /* Typing in the flow editor is not redrawn under the user. */
-  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.kfedit');
-  if (typing) return;
+  if (typingIn('.kfedit')) return;
   S.kf = S.kf || {};
   S.kf.desks = ((S.kd && S.kd.desks) || []).map((d) => ({ slug: d.slug, name: d.name }));
   if (!S.kf.desk && S.kf.desks.length) { S.kf.desk = S.kf.desks[0].slug; loadKf(S.kf.desk); }
