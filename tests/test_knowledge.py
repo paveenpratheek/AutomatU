@@ -81,3 +81,51 @@ def test_only_automatus_own_page_may_create_a_desk(store, monkeypatch):
     body = {"name": "Portfolio", "role": "r", "main_canvas": "Portfolio"}
     assert c.post("/api/kd/desks/create", json=body, headers={"origin": "http://evil.example"}).status_code == 403
     assert c.post("/api/kd/desks/create", json=body, headers={"origin": "http://testserver"}).json()["done"] is True
+
+
+def test_flows_runs_and_monitoring_are_read_and_passed_on_with_automatus_token(tmp_path, monkeypatch):
+    (tmp_path / "tokens.json").write_text(json.dumps({"automatu": "tok-a"}), encoding="utf8")
+    monkeypatch.setenv("AUTOMATU_WORKDESKS_TOKENS", str(tmp_path / "tokens.json"))
+    monkeypatch.setenv("AUTOMATU_KNOWLEDGE_DESK", "http://kd:2")
+    seen = []
+
+    def handle(req: httpx.Request) -> httpx.Response:
+        seen.append((req.method, req.url.path, req.url.params.get("desk"), req.headers.get("authorization")))
+        if req.url.path == "/knowledge/flows":
+            return httpx.Response(200, json={"desk": "portfolio", "steps": {}, "rules": [], "flows": [], "runs": []})
+        if req.url.path == "/knowledge/flows/save":
+            return httpx.Response(200, json={"saved": False, "problems": ["a flow starts by reading the Main canvas"]})
+        if req.url.path == "/knowledge/runs/r-1/answer":
+            return httpx.Response(200, json={"done": True, "run": "r-1", "state": "waiting_agent"})
+        if req.url.path == "/knowledge/traces":
+            return httpx.Response(200, json={"sessions": [{"desk": "portfolio"}], "calls": [], "note": "n"})
+        if req.url.path == "/knowledge/a2a":
+            return httpx.Response(200, json={"tasks": [{"desk": "resume-maker", "caller": "main-agent"}]})
+        return httpx.Response(404)
+    t = httpx.MockTransport(handle)
+    assert asyncio.run(knowledge.flows("portfolio", t))["desk"] == "portfolio"
+    assert asyncio.run(knowledge.save_flow({"desk": "portfolio", "name": "x", "steps": []}, t))["problems"]
+    assert asyncio.run(knowledge.answer_run("r-1", True, t)) == {"done": True, "state": "waiting_agent", "problem": None}
+    assert asyncio.run(knowledge.answer_run("../x", True, t))["done"] is False
+    mon = asyncio.run(knowledge.monitoring(None, t))
+    assert mon["up"] and mon["sessions"][0]["desk"] == "portfolio" and mon["tasks"][0]["caller"] == "main-agent"
+    assert {a for *_, a in seen} == {"Bearer tok-a"}
+    assert ("GET", "/knowledge/flows", "portfolio", "Bearer tok-a") in seen
+
+
+def test_only_automatus_own_page_may_save_a_flow_or_answer_a_stop(store, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from automatu.serve import app
+
+    async def saved(body):
+        return {"saved": True, "version": 1, "problems": []}
+
+    async def answered(run, yes):
+        return {"done": True, "state": "waiting_agent"}
+    monkeypatch.setattr(knowledge, "save_flow", saved)
+    monkeypatch.setattr(knowledge, "answer_run", answered)
+    c = TestClient(app)
+    for path, body in (("/api/kd/flows/save", {"desk": "portfolio", "name": "x", "steps": []}), ("/api/kd/runs/answer", {"run": "r-1", "yes": True})):
+        assert c.post(path, json=body, headers={"origin": "http://evil.example"}).status_code == 403
+        assert c.post(path, json=body, headers={"origin": "http://testserver"}).status_code == 200

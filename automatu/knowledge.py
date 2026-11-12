@@ -58,6 +58,79 @@ async def overview(transport: httpx.AsyncBaseTransport | None = None) -> dict:
     return out
 
 
+async def _get(path: str, params: dict | None = None, transport=None) -> tuple[int, dict]:
+    token = _token()
+    if not token:
+        return 0, {"error": "no token for Knowledge Desk - run workdesks init"}
+    try:
+        async with httpx.AsyncClient(timeout=SLOW, transport=transport) as c:
+            r = await c.get(kd_url() + path, params={k: v for k, v in (params or {}).items() if v},
+                            headers={"Authorization": "Bearer " + token})
+    except httpx.HTTPError:
+        return 0, {"error": "Knowledge Desk is not running"}
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, {"error": f"Knowledge Desk answered {r.status_code}"}
+
+
+async def _post(path: str, body: dict, transport=None) -> tuple[int, dict]:
+    token = _token()
+    if not token:
+        return 0, {"error": "no token for Knowledge Desk - run workdesks init"}
+    try:
+        async with httpx.AsyncClient(timeout=SLOW, transport=transport) as c:
+            r = await c.post(kd_url() + path, json=body, headers={"Authorization": "Bearer " + token})
+    except httpx.HTTPError:
+        return 0, {"error": "Knowledge Desk is not running"}
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, {"error": f"Knowledge Desk answered {r.status_code}"}
+
+
+def _older(code: int) -> str | None:
+    return "this Knowledge Desk is older: restart it with the new Work Desks" if code == 404 else None
+
+
+async def flows(desk: str, transport=None) -> dict:
+    """A created desk's flows, the steps they are made from, the rules, and its runs (K5)."""
+    code, j = await _get("/knowledge/flows", {"desk": desk}, transport)
+    if code != 200:
+        return {"error": _older(code) or j.get("error") or j.get("detail") or f"Knowledge Desk answered {code}"}
+    return j
+
+
+async def save_flow(body: dict, transport=None) -> dict:
+    """The user's flow, passed on; Knowledge Desk checks it against the rules and keeps it in versions."""
+    code, j = await _post("/knowledge/flows/save", body, transport)
+    if code != 200:
+        return {"saved": False, "problems": [_older(code) or j.get("error") or f"Knowledge Desk answered {code}"]}
+    return {"saved": bool(j.get("saved")), "version": j.get("version"), "problems": j.get("problems") or [],
+            "note": j.get("note")}
+
+
+async def answer_run(run: str, yes: bool, transport=None) -> dict:
+    """The user's yes or no at a flow's stop, passed on."""
+    if not run or "/" in run:
+        return {"done": False, "problem": "no such run"}
+    code, j = await _post(f"/knowledge/runs/{run}/answer", {"yes": bool(yes)}, transport)
+    if code != 200:
+        return {"done": False, "problem": _older(code) or j.get("error") or f"Knowledge Desk answered {code}"}
+    return {"done": bool(j.get("done")), "state": j.get("state"), "problem": j.get("problem")}
+
+
+async def monitoring(desk: str | None = None, transport=None) -> dict:
+    """Each agent's traced calls while it sat at a desk, and the A2A tasks between desks (K6)."""
+    (tc, t), (ac, a) = await asyncio.gather(_get("/knowledge/traces", {"desk": desk}, transport),
+                                            _get("/knowledge/a2a", None, transport))
+    if tc != 200:
+        return {"up": False, "note": _older(tc) or t.get("error") or f"Knowledge Desk answered {tc}",
+                "sessions": [], "calls": [], "tasks": []}
+    return {"up": True, "note": t.get("note", ""), "sessions": t.get("sessions") or [], "calls": t.get("calls") or [],
+            "tasks": (a.get("tasks") or []) if ac == 200 else []}
+
+
 async def change_desk(action: str, body: dict, transport: httpx.AsyncBaseTransport | None = None) -> dict:
     """The user's create, change or remove, passed on; Knowledge Desk checks it."""
     if action not in ("create", "change", "remove"):

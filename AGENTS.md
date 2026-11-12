@@ -210,7 +210,12 @@ cards and runs), Flows (the Workflows editor), Tracking (each desk's tracked
 boxes and the index) and Monitoring (A2A and tracing, which come with K6).
 Everything is read from Knowledge Desk's server (`AUTOMATU_KNOWLEDGE_DESK`,
 default 127.0.0.1:7796) with AutomatU's token, through `/api/kd`. The Main
-map draws the Tracking layer: tracked boxes ringed in orange.
+map draws the Tracking layer: tracked boxes ringed in orange. Flows has an
+editor for the created desks' flows (K5) - steps, who does each, the rules -
+with their runs and Yes/No at a stop, passed on to Knowledge Desk from this
+page only; Monitoring shows each agent's traced calls at its desk and the A2A
+tasks between desks (K6). API: `/api/kd`, `/api/kd/desks/*`, `/api/kd/flows`,
+`/api/kd/flows/save`, `/api/kd/runs/answer`, `/api/kd/monitoring`.
 
 Built features (each explained on the canvas in **AutomatU: how it works**):
 binding a repository to its canvas and plan totem; reading GitX through a Node

@@ -245,6 +245,39 @@ async def kd_desk_change(action: str, ask: KdDeskChange, request: Request) -> di
     return await change_desk(action, ask.model_dump(exclude_none=True))
 
 
+@app.get("/api/kd/flows")
+async def kd_flows(desk: str) -> dict:
+    """A created desk's flows, steps, rules and runs, from Knowledge Desk (K5)."""
+    from .knowledge import flows
+    return await flows(desk)
+
+
+@app.post("/api/kd/flows/save")
+async def kd_flow_save(request: Request) -> dict:
+    """The user saves a desk's flow - passed on to Knowledge Desk; only from AutomatU's own page."""
+    _own_page(request, "save a flow")
+    from .knowledge import save_flow
+    b = await request.json()
+    return await save_flow({"desk": str(b.get("desk") or ""), "name": str(b.get("name") or ""),
+                            "steps": list(b.get("steps") or []), "note": str(b.get("note") or "")})
+
+
+@app.post("/api/kd/runs/answer")
+async def kd_run_answer(request: Request) -> dict:
+    """The user's yes or no at a flow's stop - passed on; only from AutomatU's own page."""
+    _own_page(request, "answer a flow's stop")
+    from .knowledge import answer_run
+    b = await request.json()
+    return await answer_run(str(b.get("run") or ""), bool(b.get("yes")))
+
+
+@app.get("/api/kd/monitoring")
+async def kd_monitoring(desk: str | None = None) -> dict:
+    """Each agent's traced calls at a desk, and the A2A tasks between desks (K6)."""
+    from .knowledge import monitoring
+    return await monitoring(desk)
+
+
 # ------------------------------------------------------------ the desks' workflows (box 20, t-d966145acd)
 
 @app.get("/api/workflows")

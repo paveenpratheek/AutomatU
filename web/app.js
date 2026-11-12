@@ -19,7 +19,8 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
-import { SECTIONS, formBody, kdBarHtml, kdDesksHtml, kdMonitoringHtml, kdTrackingHtml, trackMark, trackedOn } from './kd.js';
+import { SECTIONS, addFlowStep, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
+  removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
 
 const $ = (id) => document.getElementById(id);
@@ -52,7 +53,7 @@ export const S = {
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
   notices: null, agents: null, drop: null, noticesFailed: '',
   canvasList: null, canvasBusy: '', canvasSaid: '', canvasFailed: '',
-  kdSec: 'desks', kd: null, kdForm: null, kdSaid: '',
+  kdSec: 'desks', kd: null, kdForm: null, kdSaid: '', kf: null, kdMon: null,
 };
 
 /* The Knowledge Desk tab and its sections (box 25): Agents and Workflows live inside it. */
@@ -1075,7 +1076,7 @@ function kdStage(html) {
 function renderKd() {
   if (S.kdSec === 'flows') return renderWorkflows();
   if (S.kdSec === 'tracking') return kdStage(kdTrackingHtml(S.kd));
-  if (S.kdSec === 'monitoring') return kdStage(kdMonitoringHtml());
+  if (S.kdSec === 'monitoring') return kdStage(monitoringHtml(S.kdMon));
   return renderDesks();
 }
 
@@ -1102,6 +1103,7 @@ function loadKd() {
     const before = JSON.stringify(S.kd && S.kd.tracking);
     S.kd = j;
     if (S.tab === 'kd' && S.kdSec !== 'flows') renderKd();
+    else if (S.tab === 'kd' && (!S.kf || !S.kf.desk) && (j.desks || []).length) renderWorkflows();   // the desks came in
     else if (S.tab === 'kd') { const bar = document.querySelector('.kdbar'); if (bar) bar.outerHTML = kdBarHtml(S.kdSec, S.kd); }
     else if (S.tab === 'main' && before !== JSON.stringify(j.tracking)) { S.track = null; renderMain(); }
   }).catch(() => {});
@@ -1194,10 +1196,76 @@ function interruptDesk(b) {
 
 /* The Workflows tab (box 20, t-d966145acd): a desk job's flow, arranged here,
    checked by the desk on save, kept by AutomatU in time; and the desk's grants. */
-function renderWorkflows() { kdStage(editorHtml(S.wf)); }
+function renderWorkflows() {
+  /* Typing in the flow editor is not redrawn under the user. */
+  const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.kfedit');
+  if (typing) return;
+  S.kf = S.kf || {};
+  S.kf.desks = ((S.kd && S.kd.desks) || []).map((d) => ({ slug: d.slug, name: d.name }));
+  if (!S.kf.desk && S.kf.desks.length) { S.kf.desk = S.kf.desks[0].slug; loadKf(S.kf.desk); }
+  kdStage(kfHtml(S.kf) + `<section class="kd"><h2>Hosted desks' jobs</h2></section>` + editorHtml(S.wf));
+}
+
+/* ------------------------------------------------------------ the created desks' flows (K5) */
+
+function loadKf(desk, open) {
+  if (!desk) return Promise.resolve();
+  return getJson('/api/kd/flows?desk=' + encodeURIComponent(desk)).then((j) => {
+    if (!S.kf || S.kf.desk !== desk) return;
+    S.kf.data = j;
+    const want = open || (S.kf.name == null && j.flows && j.flows[0] ? j.flows[0].name : null);
+    const f = want && (j.flows || []).find((x) => x.name === want);
+    if (f) { S.kf.name = f.name; S.kf.steps = JSON.parse(JSON.stringify(f.steps)); }
+    if (inKd('flows')) renderWorkflows();
+  }).catch((e) => { if (S.kf) S.kf.data = { error: e.message }; if (inKd('flows')) renderWorkflows(); });
+}
+
+function kfClick(el) {
+  const K = S.kf, a = el.dataset.kf, i = +el.dataset.i;
+  K.said = ''; K.problems = [];
+  if (a === 'desk') { S.kf = { desks: K.desks, desk: el.dataset.slug, data: null, name: null, steps: [] }; renderWorkflows(); return loadKf(el.dataset.slug); }
+  if (a === 'open') { const f = (K.data.flows || []).find((x) => x.name === el.dataset.name); if (f) { K.name = f.name; K.steps = JSON.parse(JSON.stringify(f.steps)); } return renderWorkflows(); }
+  if (a === 'new') { K.name = ''; K.steps = starterFlow(); return renderWorkflows(); }
+  if (a === 'up' || a === 'down') { K.steps = moveFlowStep(K.steps, i, a === 'up' ? -1 : 1); return renderWorkflows(); }
+  if (a === 'remove') { K.steps = removeFlowStep(K.steps, i); return renderWorkflows(); }
+  if (a === 'save') {
+    K.busy = true; renderWorkflows();
+    return post('/api/kd/flows/save', { desk: K.desk, name: K.name, steps: K.steps })
+      .then((j) => { K.problems = j.problems || []; K.said = j.saved ? `Saved as version ${j.version}.` : (j.note ? 'Nothing changed.' : ''); return j.saved ? loadKf(K.desk, K.name) : null; })
+      .catch(() => { K.problems = ['AutomatU could not be reached.']; })
+      .then(() => { K.busy = false; renderWorkflows(); });
+  }
+  if (a === 'yes' || a === 'no') {
+    el.disabled = true;
+    return post('/api/kd/runs/answer', { run: el.dataset.run, yes: a === 'yes' })
+      .then((j) => { K.said = j.done ? (a === 'yes' ? 'Yes passed on: the agent gets its next step when it next asks.' : 'No passed on: the run has ended.') : `Not passed on: ${j.problem || 'Knowledge Desk said no'}`; })
+      .catch(() => { K.said = 'AutomatU could not be reached.'; })
+      .then(() => loadKf(K.desk, K.name));
+  }
+}
+
+function kfChange(el) {
+  const K = S.kf;
+  if (!K) return;
+  if (el.dataset.kfAdd) { K.steps = addFlowStep(K.steps || [], el.value); el.value = ''; return renderWorkflows(); }
+  const f = el.dataset.kfField;
+  if (f === 'name') { K.name = el.value; return; }
+  K.steps = setFlowField(K.steps, +el.dataset.i, f, el.type === 'checkbox' ? el.checked : el.value);
+  if (f === 'mode') renderWorkflows();
+}
+
+/* ------------------------------------------------------------ monitoring (K6) */
+
+function loadMon() {
+  return getJson('/api/kd/monitoring').then((j) => { S.kdMon = j; if (inKd('monitoring')) renderKd(); })
+    .catch((e) => { S.kdMon = { up: false, note: e.message }; if (inKd('monitoring')) renderKd(); });
+}
 
 function openWorkflows() {
   S.wf = S.wf || {};
+  S.kf = S.kf || {};
+  const created = (S.kd && S.kd.desks) || [];
+  if (!S.kf.desk && created.length) { S.kf.desk = created[0].slug; loadKf(S.kf.desk); }
   const pick = () => {
     S.wf.desks = ((S.desks && S.desks.desks) || []);
     if (!S.wf.desk) { const d = S.wf.desks.find((x) => x.up && x.live); if (d) return loadWorkflows(d.url); }
@@ -1282,6 +1350,8 @@ function workflowsChange(el) {
 }
 
 document.addEventListener('change', (e) => {
+  const kfe = e.target.closest('[data-kf-field], [data-kf-add]');
+  if (kfe && inKd('flows')) return kfChange(kfe);
   const el = e.target.closest('[data-wf]');
   if (el && inKd('flows')) workflowsChange(el);
 });
@@ -1405,9 +1475,11 @@ document.addEventListener('click', (e) => {
   const intr = e.target.closest('[data-int-task]');
   if (intr) return interruptDesk(intr);
   const kds = e.target.closest('[data-kdsec]');
-  if (kds) { S.kdSec = kds.dataset.kdsec; S.deskRun = null; if (S.kdSec === 'flows') openWorkflows(); return render(); }
+  if (kds) { S.kdSec = kds.dataset.kdsec; S.deskRun = null; if (S.kdSec === 'flows') openWorkflows(); if (S.kdSec === 'monitoring') loadMon(); return render(); }
   const kdb = e.target.closest('button[data-kd]');
   if (kdb) return kdClick(kdb);
+  const kfb = e.target.closest('button[data-kf]');
+  if (kfb && inKd('flows')) return kfClick(kfb);
   const wfb = e.target.closest('button[data-wf]');
   if (wfb && inKd('flows')) return workflowsClick(wfb);
   const opener = e.target.closest('[data-run-task]');
@@ -1571,7 +1643,13 @@ async function start() {
   loadNotices();
   loadDesks();
   loadKd();
-  setInterval(() => { follow().catch(() => {}); loadNotices(); loadDesks(); loadKd(); if (inKd('desks') && S.deskRun) loadDeskRun(); }, 4000);
+  if (inKd('monitoring')) loadMon();
+  setInterval(() => {
+    follow().catch(() => {}); loadNotices(); loadDesks(); loadKd();
+    if (inKd('desks') && S.deskRun) loadDeskRun();
+    if (inKd('monitoring')) loadMon();
+    if (inKd('flows') && S.kf && S.kf.desk && S.kf.data && !S.kf.busy) loadKf(S.kf.desk);   // runs move on
+  }, 4000);
 }
 
 /* The live map (t-5b98c27370): the server makes a new map on every commit or
