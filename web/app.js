@@ -1074,11 +1074,30 @@ export function render() {
    would never show what came of it. */
 function typingIn(sel) {
   const a = document.activeElement;
-  return !!(a && a.matches && a.matches('textarea, input:not([type=checkbox]):not([type=radio])') && a.closest(sel));
+  return !!(a && a.matches && a.matches('textarea, select, input:not([type=checkbox]):not([type=radio])') && a.closest(sel));
 }
 
+/* The page refreshes every few seconds; what it draws is replaced only when it
+   changed, so a refresh that brings nothing new never resets the page. */
 function kdStage(html) {
-  $('stage').innerHTML = `<div class="kdpage">${kdBarHtml(S.kdSec, S.kd)}<div class="kdbody">${html}</div></div>`;
+  const next = `<div class="kdpage">${kdBarHtml(S.kdSec, S.kd)}<div class="kdbody">${html}</div></div>`;
+  if (S.kdDrawn === next && $('stage').querySelector('.kdpage')) return;
+  S.kdDrawn = next;
+  $('stage').innerHTML = next;
+}
+
+/* What is typed or picked in the desk form is kept as it is entered, so a
+   redraw puts it back instead of emptying the form. */
+function keepForm(f) {
+  const fd = new FormData(f);
+  S.kdForm = { ...(S.kdForm || {}), name: fd.get('name') || '', role: fd.get('role') || '',
+    main_canvas: fd.get('main_canvas') || '', attached: fd.getAll('attached'), owner: fd.get('owner') || '' };
+}
+for (const ev of ['input', 'change']) {
+  document.addEventListener(ev, (e) => {
+    const f = e.target.closest && e.target.closest('[data-kdform]');
+    if (f) keepForm(f);
+  });
 }
 
 function renderKd() {
