@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import os
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -19,7 +20,9 @@ from .sources.canvas import Canvas, Section, read_canvas_script, sections
 from .sources.gitx import read_repo
 from .store import db
 
-CALIBRATION = Path(__file__).resolve().parent.parent / "calibration.json"
+# The placement numbers; AUTOMATU_CALIBRATION points elsewhere, to try another
+# embedding model without touching the live numbers (t-7a65a4d285).
+CALIBRATION = Path(os.environ.get("AUTOMATU_CALIBRATION") or Path(__file__).resolve().parent.parent / "calibration.json")
 
 
 def plan_hash(sections: list[Section]) -> str:
@@ -59,6 +62,10 @@ def calibrated() -> Numbers:
     except OSError:
         raise RuntimeError("no calibration.json yet: run the calibration before placing code")
     c = load_calibration(text)
+    if c.model != MODEL:
+        # Scores from two models live in different ranges: numbers from one never place another's vectors (t-ca3943cad2).
+        raise RuntimeError(f"calibration.json was calibrated on {c.model}, but AutomatU embeds with {MODEL}: "
+                           "calibrate this model first (automatu calibrate --write)")
     v = Vote(top=c.vote.top, min_votes=c.vote.minVotes, share=c.vote.share) if c.vote else None
     return Numbers(min_score=c.minScore, min_margin=c.minMargin, overlap=c.overlap, max_shared=c.maxShared, vote=v)
 

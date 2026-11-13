@@ -187,7 +187,7 @@ def run(write: bool = False, log=print) -> dict:
 
     def search(overlaps):
         best = None
-        for si in range(0, 41):
+        for si in range(0, 51):   # a score bar from 0 to 1.0: another model's scores may sit higher
             for mi in range(0, 41):
                 for o in overlaps:
                     n = Numbers(min_score=round(si * 0.02, 2), min_margin=round(mi * 0.0025, 4), overlap=o, max_shared=MAX_SHARED)

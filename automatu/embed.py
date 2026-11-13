@@ -16,7 +16,11 @@ import numpy as np
 from .store import db
 
 MODEL = os.environ.get("AUTOMATU_EMBED_MODEL", "bge-m3")
-DIM = 1024
+# EmbeddingGemma reads a text differently by what it is for, and is told so, as
+# its makers ask: here every text - a box's words, a commit, a decision - is
+# compared with others for likeness (t-ca3943cad2). bge-m3 takes plain text.
+PROMPTS = {"embeddinggemma": "task: sentence similarity | query: "}
+PROMPT = next((p for k, p in PROMPTS.items() if MODEL.startswith(k)), "")
 OLLAMA = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 BATCH = 16
 
@@ -29,7 +33,7 @@ def embed_texts(texts: list[str]) -> list[np.ndarray]:
     """Texts to vectors, in order, through Ollama."""
     out: list[np.ndarray] = []
     for i in range(0, len(texts), BATCH):
-        body = json.dumps({"model": MODEL, "input": texts[i:i + BATCH], "truncate": True}).encode("utf-8")
+        body = json.dumps({"model": MODEL, "input": [PROMPT + t for t in texts[i:i + BATCH]], "truncate": True}).encode("utf-8")
         req = urllib.request.Request(OLLAMA + "/api/embed", data=body, headers={"content-type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=300) as res:
