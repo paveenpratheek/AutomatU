@@ -48,3 +48,8 @@ node --test web/                           map view tests
 
 Paths to GitX and NoteX default to this machine's and are set with `GITX_DIR`,
 `NOTEX_RUNTIME`, `AUTOMATU_DB_URL` and `OLLAMA_URL`.
+
+## License
+
+Copyright (C) 2026 Paveen Pratheek.
+AutomatU is free software under the **GNU Affero General Public License v3 or later**. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The name "AutomatU" is not licensed for use by modified versions.
