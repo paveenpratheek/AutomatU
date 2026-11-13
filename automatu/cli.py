@@ -7,7 +7,7 @@
                                   thoughts, and the sections of its canvas
   automatu align <repo>           place its regions under the plan's sections
                                   and keep the map as a snapshot
-  automatu calibrate [--write]    set the placement numbers on the Harness canvas
+  automatu calibrate [--vote] [--write]  set the placement numbers (or the neighbours' vote) on the Harness canvas
   automatu serve [--port 7790]    the map view on 127.0.0.1, making a new map on
                                   every commit or plan change (--no-watch to only show)
   automatu agent register|leave <repo> --agent NAME
@@ -78,8 +78,11 @@ def _align(a) -> None:
 
 
 def _calibrate(a) -> None:
-    from .calibrate import run
-    run(write=a.write)
+    from .calibrate import calibrate_vote, run
+    if a.vote:
+        calibrate_vote(write=a.write)
+    else:
+        run(write=a.write)
 
 
 def _serve(a) -> None:
@@ -165,7 +168,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("sources", help="what AutomatU reads for a repository"); s.add_argument("repo"); s.set_defaults(fn=_sources)
     al = sub.add_parser("align", help="place a repository's regions under its plan"); al.add_argument("repo"); al.set_defaults(fn=_align)
     c = sub.add_parser("calibrate", help="set the placement numbers on the Harness canvas")
-    c.add_argument("--write", action="store_true", help="write calibration.json"); c.set_defaults(fn=_calibrate)
+    c.add_argument("--write", action="store_true", help="write calibration.json")
+    c.add_argument("--vote", action="store_true", help="tune the neighbours' vote on RAGX, check it on NoteX"); c.set_defaults(fn=_calibrate)
     v = sub.add_parser("serve", help="the map view, kept live")
     v.add_argument("--port", type=int, default=7790)
     v.add_argument("--no-watch", action="store_true", help="only show maps, do not make new ones")

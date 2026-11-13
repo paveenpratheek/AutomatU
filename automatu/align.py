@@ -12,6 +12,13 @@ max_shared of them, provided that group together leads the rest by min_margin
 
 The numbers are set by calibration on canvases whose links are known, never by
 looking at the project being placed (t-d47e303b39).
+
+A close call - a region strong enough for the score bar whose best box is not
+clearly ahead of the next - is settled by its neighbours' vote: the regions in
+its file, the code it uses and the code that uses it. Among its top boxes it goes
+where enough of its placed neighbours sit, and waits when they disagree. Only
+neighbours placed on their own merits vote, so a vote never builds on another;
+other code is the evidence, never the box (t-4c304baf12).
 """
 from __future__ import annotations
 
@@ -21,11 +28,21 @@ import numpy as np
 
 
 @dataclass
+class Vote:
+    """How a close call is settled by its neighbours (t-4c304baf12), calibrated
+    on RAGX and checked on NoteX (t-8ba9961859)."""
+    top: int = 2           # the region's top boxes the vote may choose among
+    min_votes: int = 2     # placed neighbours that must sit in the chosen box
+    share: float = 0.6     # and their share of all its placed neighbours
+
+
+@dataclass
 class Numbers:
     min_score: float
     min_margin: float
     overlap: float = 0.0
     max_shared: int = 3
+    vote: Vote | None = None
 
 
 @dataclass
@@ -36,6 +53,7 @@ class Placement:
     margin: float
     near: list[str]       # the group it would join, placed or not (t-21f43bf927)
     sections: list[str]   # empty while not yet placed
+    voted: bool = False   # placed by its neighbours' vote, not on its own
 
     @property
     def section(self) -> str | None:
@@ -74,7 +92,50 @@ def decide(ranked: list[tuple[str, float]], n: Numbers) -> dict:
             "near": [g[0] for g in group], "sections": [g[0] for g in group] if placed else []}
 
 
-def place_regions(region_vecs: dict[str, np.ndarray], section_vecs: dict[str, np.ndarray], n: Numbers | None) -> list[Placement]:
+def neighbours_of(regions, uses: list[tuple[str, str]]) -> dict[str, set[str]]:
+    """Each region's neighbours: the other regions of its file, and the regions
+    its code uses or that use it."""
+    by_file: dict[str, list[str]] = {}
+    for r in regions:
+        by_file.setdefault(r.file, []).append(r.id)
+    out: dict[str, set[str]] = {r.id: set() for r in regions}
+    for ids in by_file.values():
+        for i in ids:
+            out[i].update(x for x in ids if x != i)
+    for a, b in uses:
+        if a in out and b in out and a != b:
+            out[a].add(b)
+            out[b].add(a)
+    return out
+
+
+def vote(decided: list[tuple[str, dict, list[tuple[str, float]]]], neighbours: dict[str, set[str]], n: Numbers) -> int:
+    """Settle close calls in place by the neighbours' vote; how many were placed.
+    decided: (region, its decision, its ranked boxes)."""
+    v = n.vote
+    if not v:
+        return 0
+    placed = {r: set(d["sections"]) for r, d, _ in decided if d["sections"]}
+    count = 0
+    for r, d, ranked in decided:
+        if d["sections"] or d["score"] < n.min_score:
+            continue
+        voters = [placed[x] for x in neighbours.get(r, ()) if x in placed]
+        if len(voters) < v.min_votes:
+            continue
+        tally = sorted(((sum(box in s for s in voters), box) for box, _ in ranked[:v.top]), reverse=True)
+        top, box = tally[0]
+        if top >= v.min_votes and top / len(voters) >= v.share and (len(tally) < 2 or tally[1][0] < top):
+            d["sections"], d["voted"] = [box], True
+            count += 1
+    return count
+
+
+def place_regions(region_vecs: dict[str, np.ndarray], section_vecs: dict[str, np.ndarray], n: Numbers | None,
+                  neighbours: dict[str, set[str]] | None = None) -> list[Placement]:
     if n is None or n.min_score is None or n.min_margin is None or n.min_margin < 0:
         raise ValueError("placing needs min_score and min_margin (from calibration)")
-    return [Placement(region=r, **decide(ranked, n)) for r, ranked in rank_sections(region_vecs, section_vecs)]
+    decided = [(r, decide(ranked, n), ranked) for r, ranked in rank_sections(region_vecs, section_vecs)]
+    if neighbours is not None:
+        vote(decided, neighbours, n)
+    return [Placement(region=r, **d) for r, d, _ in decided]

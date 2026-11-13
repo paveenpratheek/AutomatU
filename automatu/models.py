@@ -543,6 +543,18 @@ class SelfTest(Strict):
     truth: str
 
 
+class CalibrationVote(Strict):
+    """How close calls are settled by the neighbours' vote (t-4c304baf12): tuned on
+    one repository's boxes and checked on another's it never saw (t-8ba9961859)."""
+    top: int = Field(ge=1)
+    minVotes: int = Field(ge=1)
+    share: float = Field(gt=0, le=1)
+    tunedOn: str
+    checkedOn: str
+    checkedBefore: CalibrationResult   # the checking repository without the vote
+    checkedAfter: CalibrationResult    # and with it
+
+
 class Calibration(Strict):
     """calibration.json: the placement numbers and how they were found."""
     made: str
@@ -556,3 +568,4 @@ class Calibration(Strict):
     maxShared: int = Field(default=3, ge=1)
     result: CalibrationResult
     selfTest: SelfTest
+    vote: CalibrationVote | None = None

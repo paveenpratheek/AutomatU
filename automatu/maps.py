@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .align import Numbers, place_regions
+from .align import Numbers, Vote, neighbours_of, place_regions
 from .binding import binding_of, plan_sections, remember_totem_id, repo_key
 from .embed import MODEL, text_hash
 from .models import Calibration
@@ -59,7 +59,8 @@ def calibrated() -> Numbers:
     except OSError:
         raise RuntimeError("no calibration.json yet: run the calibration before placing code")
     c = load_calibration(text)
-    return Numbers(min_score=c.minScore, min_margin=c.minMargin, overlap=c.overlap, max_shared=c.maxShared)
+    v = Vote(top=c.vote.top, min_votes=c.vote.minVotes, share=c.vote.share) if c.vote else None
+    return Numbers(min_score=c.minScore, min_margin=c.minMargin, overlap=c.overlap, max_shared=c.maxShared, vote=v)
 
 
 def load_calibration(text: str) -> Calibration:
@@ -88,7 +89,7 @@ def make_map(dir: str, numbers: Numbers | None = None) -> dict:
         raise RuntimeError("the plan totem " + str(b["totem"]) + " has no boxes on the canvas " + b["canvas"])
     rv, made_r = region_vectors(repo, key)
     sv, made_s = section_vectors(canvas)
-    places = place_regions(rv, sv, numbers)
+    places = place_regions(rv, sv, numbers, neighbours_of(repo.regions, repo.uses))
     placed = sum(1 for p in places if p.sections)
     addresses = [s.address for s in canvas.sections]
 

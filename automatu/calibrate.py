@@ -19,7 +19,7 @@ import math
 import time
 from datetime import date
 
-from .align import Numbers, decide, rank_sections
+from .align import Numbers, Vote, decide, neighbours_of, rank_sections, vote
 from .embed import MODEL
 from .maps import CALIBRATION
 from .models import Calibration
@@ -94,6 +94,75 @@ def score(places: list[tuple[str, dict]], known: dict[str, set[str]]) -> dict:
     s["coverage"] = s["covered"] / s["known"] if s["known"] else 0
     s["top1"] = s["top1"] / s["known"] if s["known"] else 0
     return s
+
+
+def prepare(log=print) -> dict:
+    """Each Harness repository's regions ranked against its own plan boxes, what is
+    known of them, and their neighbours - every cosine once."""
+    canvas = read_canvas(CANVAS)
+    sv, _ = section_vectors(canvas)
+    out = {}
+    for d, totem in REPOS.items():
+        repo = read_repo(d)
+        rv, _ = region_vectors(repo, d)
+        plan = [s for s in canvas.sections if s.totem == totem]
+        out[totem] = {"ranked": rank_sections(rv, {s.address: sv[s.address] for s in plan if s.address in sv}),
+                      "known": known_links(repo, plan), "neighbours": neighbours_of(repo.regions, repo.uses)}
+        log(f"{totem}: {len(repo.regions)} regions, {len(plan)} boxes, {len(out[totem]['known'])} known")
+    return out
+
+
+def evaluate(data: dict, n: Numbers) -> dict:
+    """One repository's score with these numbers, the vote included when they carry one."""
+    decided = [(r, decide(rk, n), rk) for r, rk in data["ranked"]]
+    vote(decided, data["neighbours"], n)
+    return score([(r, d) for r, d, _ in decided], data["known"])
+
+
+VOTE_GRID = [Vote(top=t, min_votes=k, share=s) for t in (2, 3) for k in (1, 2, 3, 4) for s in (0.5, 0.6, 0.7, 0.8, 0.9, 1.0)]
+
+
+def calibrate_vote(write: bool = False, tune: str = "RAGX", check: str = "NoteX", log=print) -> dict:
+    """The vote's numbers, tuned on one repository's boxes and checked on the other's,
+    with the score and margin bars kept as calibrated (t-8ba9961859)."""
+    from .maps import calibrated
+    base = calibrated()
+    base = Numbers(min_score=base.min_score, min_margin=base.min_margin, overlap=base.overlap, max_shared=base.max_shared)
+    data = prepare(log)
+    value = lambda r: r["correct"] - WRONG_COST * r["wrong"]
+    best, best_r = None, None
+    for v in VOTE_GRID:
+        r = evaluate(data[tune], Numbers(**{**base.__dict__, "vote": v}))
+        if best is None or value(r) > value(best_r) or (value(r) == value(best_r) and r["wrong"] < best_r["wrong"]):
+            best, best_r = v, r
+    tuned_before = evaluate(data[tune], base)
+    with_vote = Numbers(**{**base.__dict__, "vote": best})
+    before, after = evaluate(data[check], base), evaluate(data[check], with_vote)
+    pct = lambda x: f"{x * 100:.1f}%"
+    line = lambda r: f"precision {pct(r['precision'])}, coverage {pct(r['coverage'])} ({r['correct']} right, {r['wrong']} wrong of {r['known']} known)"
+    log(f"\nvote chosen on {tune}: top {best.top}, min_votes {best.min_votes}, share {best.share}")
+    log(f"{tune} (tuning)  without: {line(tuned_before)}")
+    log(f"{tune} (tuning)  with:    {line(best_r)}")
+    log(f"{check} (checking) without: {line(before)}")
+    log(f"{check} (checking) with:    {line(after)}")
+    keep = lambda r: {k: (round(r[k], 4) if isinstance(r[k], float) else r[k])
+                      for k in ("known", "placed", "shared", "placements", "correct", "wrong", "precision", "coverage", "top1")}
+    out = {"vote": best.__dict__, "tuned": {"before": keep(tuned_before), "after": keep(best_r)},
+           "checked": {"before": keep(before), "after": keep(after)}}
+    if write:
+        merged = {"ranked": data[tune]["ranked"] + data[check]["ranked"], "known": {**data[tune]["known"], **data[check]["known"]},
+                  "neighbours": {**data[tune]["neighbours"], **data[check]["neighbours"]}}
+        allr = evaluate(merged, with_vote)
+        c = json.loads(CALIBRATION.read_text(encoding="utf-8"))
+        c["result"] = keep(allr)
+        # The self-test's coverage mark follows its rule, fixed here before the test runs (t-318ebf8e44).
+        c["selfTest"]["minCoverage"] = math.ceil(allr["coverage"] * 100) / 100
+        c["vote"] = {"top": best.top, "minVotes": best.min_votes, "share": best.share, "tunedOn": tune, "checkedOn": check,
+                     "checkedBefore": keep(before), "checkedAfter": keep(after)}
+        c = Calibration.model_validate(c).model_dump(exclude_none=True)
+        CALIBRATION.write_text(json.dumps(c, indent=2) + "\n", encoding="utf-8")
+        log(f"\nwritten {CALIBRATION}: on both, {line(allr)}; self-test pass mark now precision >= 90%, coverage >= {c['selfTest']['minCoverage'] * 100:.0f}%")
+    return out
 
 
 def run(write: bool = False, log=print) -> dict:
