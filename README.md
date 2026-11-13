@@ -1,4 +1,5 @@
 # AutomatU
+[![CI](https://github.com/paveenpratheek/AutomatU/actions/workflows/ci.yml/badge.svg)](https://github.com/paveenpratheek/AutomatU/actions/workflows/ci.yml)
 
 **Keeps a project's plan and its code lined up.** AutomatU reads a repository's
 code regions with the commits and recorded decisions behind them (through
