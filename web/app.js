@@ -19,7 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
-import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
+import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
 
@@ -989,7 +989,8 @@ function renderChrome() {
   up.hidden = S.tab !== 'kd' || !S.kd;
   if (!up.hidden) {
     up.classList.toggle('down', !S.kd.up);
-    setHtml(up, `<span class="dot"></span><span class="tx"><span>${S.kd.up ? 'Knowledge Desk is up' : 'Knowledge Desk is not answering'}</span>` +
+    up.classList.toggle('slow', !!(S.kd.up && S.kd.late));
+    setHtml(up, `<span class="dot"></span><span class="tx"><span>${S.kd.up ? (S.kd.late ? 'Knowledge Desk is slow to answer' : 'Knowledge Desk is up') : 'Knowledge Desk is not answering'}</span>` +
       `<span class="m">${esc(S.kd.up ? String(S.kd.url || '').replace(/^https?:\/\//, '') + ' · A2A 1.0' : (S.kd.note || ''))}</span></span>`);
   }
   let crumbs, title;
@@ -1226,9 +1227,9 @@ document.addEventListener('submit', (e) => {
 
 /* What Knowledge Desk serves the tab (box 25), and the Tracking layer on Main. */
 function loadKd() {
-  return getJson('/api/kd').then((j) => {
+  return getJson('/api/kd').then((fresh) => {
     const before = JSON.stringify(S.kd && S.kd.tracking);
-    S.kd = j;
+    const j = S.kd = mergeOverview(S.kd, fresh);
     if (S.tab === 'kd' && S.kdSec !== 'flows') renderKd();
     else if (S.tab === 'kd' && (!S.kf || !S.kf.desk) && (j.desks || []).length) renderWorkflows();   // the desks came in
     else if (S.tab === 'kd') renderChrome();

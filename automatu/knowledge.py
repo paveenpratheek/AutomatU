@@ -17,6 +17,7 @@ import httpx
 from .desks import _token
 
 TIMEOUT = 4.0
+TRACK_TIMEOUT = 10.0  # the tracked boxes take Knowledge Desk 1-2 s alone; it is the slow one of the three
 SLOW = 60.0   # creating a desk asks AutomatU's own MCP server for the canvases
 
 
@@ -28,19 +29,36 @@ async def overview(transport: httpx.AsyncBaseTransport | None = None) -> dict:
     """The desks with their cards, every tracked box, and the index - or why
     Knowledge Desk could not be read."""
     token = _token()
-    out = {"url": kd_url(), "up": False, "note": "", "desks": [], "tracking": [], "canvases": []}
+    out = {"url": kd_url(), "up": False, "note": "", "slow": False, "tracking_late": False, "desks": [], "tracking": [], "canvases": []}
     if not token:
         out["note"] = "no token to read Knowledge Desk - run workdesks init"
         return out
     h = {"Authorization": "Bearer " + token}
-    try:
-        async with httpx.AsyncClient(timeout=TIMEOUT, transport=transport) as c:
-            d, t, cv = await asyncio.gather(c.get(kd_url() + "/knowledge/desks", headers=h),
-                                            c.get(kd_url() + "/knowledge/tracking", headers=h),
-                                            c.get(kd_url() + "/knowledge/canvases", headers=h))
-    except httpx.HTTPError:
-        out["note"] = "Knowledge Desk is not running: workdesks desk knowledge-desk"
-        return out
+
+    async def get(c, path, timeout):
+        try:
+            return await c.get(kd_url() + path, headers=h, timeout=timeout)
+        except httpx.HTTPError as e:
+            return e
+
+    # Asked apart, so the slow one (the tracked boxes) cannot take the desks down
+    # with it, and a slow answer is told from no answer: a timeout is "did not
+    # answer in time", only a refused connection is "not running". The page polls
+    # every few seconds, so calling a slow moment "not running" made it flicker.
+    async with httpx.AsyncClient(transport=transport) as c:
+        d, t, cv = await asyncio.gather(get(c, "/knowledge/desks", TIMEOUT), get(c, "/knowledge/tracking", TRACK_TIMEOUT),
+                                        get(c, "/knowledge/canvases", TIMEOUT))
+    for r in (d, cv):
+        if isinstance(r, httpx.TimeoutException):
+            out["slow"] = True
+            out["note"] = "Knowledge Desk did not answer in time"
+            return out
+        if isinstance(r, httpx.HTTPError):
+            out["note"] = "Knowledge Desk is not running: workdesks desk knowledge-desk"
+            return out
+    if isinstance(t, httpx.HTTPError):
+        out["tracking_late"] = True
+        t = None
     if d.status_code == 404:
         out["note"] = "this Knowledge Desk is older: restart it with the new Work Desks"
         return out
@@ -49,7 +67,7 @@ async def overview(transport: httpx.AsyncBaseTransport | None = None) -> dict:
         return out
     try:
         out["desks"] = d.json().get("desks") or []
-        out["tracking"] = t.json().get("tracked") or [] if t.status_code == 200 else []
+        out["tracking"] = t.json().get("tracked") or [] if t is not None and t.status_code == 200 else []
         out["canvases"] = cv.json().get("canvases") or [] if cv.status_code == 200 else []
     except ValueError:
         out["note"] = "Knowledge Desk answered with something AutomatU could not read"

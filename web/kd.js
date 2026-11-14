@@ -32,6 +32,20 @@ export function kdBarHtml(sec, ov) {
     (k === 'tracking' && changed ? `<span class="badge">${changed}</span>` : '') + `</button>`).join('') + `</nav>`;
 }
 
+/* A fresh overview over the last one. Knowledge Desk that is only slow keeps
+   the page as it last read it, saying so, instead of emptying it every few
+   seconds; tracking that was late keeps the tracked boxes it had. Only an
+   answer that says it is down, or older, replaces what is shown. */
+export function mergeOverview(prev, next) {
+  if (!next) return prev;
+  const had = prev && prev.up;
+  if (!next.up && next.slow && had) return { ...prev, late: next.note || 'Knowledge Desk did not answer in time' };
+  if (next.up && next.tracking_late) {
+    return { ...next, tracking: had ? prev.tracking || [] : [], late: 'Tracking did not answer in time' + (had ? ' - showing the tracked boxes as last read' : '') };
+  }
+  return next;
+}
+
 /* The hexagons' colours: a soft tone to fill, a deeper one to draw with. A
    canvas keeps its colour by its place among the canvases you added. */
 export const TONES = ['#B9D2EA', '#F4C6B8', '#C2E0CE', '#DCCFF1', '#F5DDA3', '#B0DADB', '#F2C8D9', '#D3DEB0', '#C6CEF3', '#EBCFB2'];
@@ -162,6 +176,7 @@ export function kdDesksHtml(ov, form, canvases, said) {
   if (!ov) return '<div class="status">Asking Knowledge Desk…</div>';
   const tracked = ov.tracking || [];
   return `<section class="kd">` + (said ? `<p class="said">${esc(said)}</p>` : '') +
+    (ov.late && !ov.tracking_late ? `<p class="said">${esc(ov.late)} - showing the desks as last read.</p>` : '') +
     `<div class="kdgrid">${(ov.desks || []).map((d) => deskCardHtml(d, tracked, canvases)).join('') ||
       `<p class="muted">${ov.up ? 'No desks yet: create one here.' : esc(ov.note || 'Knowledge Desk could not be read.')}</p>`}` +
     deskFormHtml(form, canvases) + `</div></section>`;
@@ -203,7 +218,7 @@ export function kdTrackingHtml(ov, names) {
   const who = [...by.entries()].map(([slug, rows]) => `<div class="kv"><span class="v">${esc(rows[0].desk_name || slug)}</span>` +
     `<span class="k">${rows.length} box${rows.length === 1 ? '' : 'es'}, ${new Set(rows.map((r) => r.canvas)).size} canvas${new Set(rows.map((r) => r.canvas)).size === 1 ? '' : 'es'}</span></div>`).join('');
   const idx = (ov.canvases || []).map((c) => `<div class="kv"><span class="v">${hexIcon(c.canvas, names, 14)} ${esc(c.canvas)}</span><span class="k">${c.boxes} boxes · ${esc(dayOf(c.updated_at))}</span></div>`).join('');
-  return `<div class="kx"><section class="kxmain">` +
+  return `<div class="kx"><section class="kxmain">` + (ov.late ? `<p class="said">${esc(ov.late)}.</p>` : '') +
     `<div class="kdtiles">${tile(String(all.length), 'boxes tracked')}${tile(String(changed), 'changed since last read')}${tile(last ? dayOf(last) : '-', 'last read')}</div>` +
     (desks || '<p class="muted">No desk tracks a box yet: a box is tracked when the agent sitting at a desk cites it in a text it checks.</p>') +
     `</section><aside class="kxside">` +

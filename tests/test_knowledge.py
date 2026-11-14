@@ -164,3 +164,26 @@ def test_an_ask_that_cannot_be_answered_says_why(kd):
     failed = httpx.MockTransport(lambda req: httpx.Response(200, json={"result": {"task": {"status": {"state": "TASK_STATE_FAILED",
                                  "message": {"parts": [{"text": "the embedder is down"}]}}}}}))
     assert asyncio.run(knowledge.ask("q", "built", failed))["error"] == "the embedder is down"
+
+
+def test_a_slow_knowledge_desk_is_told_from_one_that_is_not_running(kd):
+    """The page polls every few seconds: a slow answer must not read as 'not
+    running', and a late tracking answer must not take the desks with it."""
+    def answer(slow_path=None, refuse=False):
+        def handle(req):
+            if refuse:
+                raise httpx.ConnectError("refused")
+            if req.url.path == slow_path:
+                raise httpx.ReadTimeout("slow")
+            return {"/knowledge/desks": httpx.Response(200, json={"desks": [DESK]}),
+                    "/knowledge/tracking": httpx.Response(200, json={"tracked": []}),
+                    "/knowledge/canvases": httpx.Response(200, json={"canvases": []})}[req.url.path]
+        return httpx.MockTransport(handle)
+    late = asyncio.run(knowledge.overview(answer("/knowledge/tracking")))
+    assert late["up"] and late["tracking_late"] and late["desks"][0]["name"] == "Portfolio" and late["tracking"] == []
+    slow = asyncio.run(knowledge.overview(answer("/knowledge/desks")))
+    assert (slow["up"], slow["slow"], slow["note"]) == (False, True, "Knowledge Desk did not answer in time")
+    down = asyncio.run(knowledge.overview(answer(refuse=True)))
+    assert (down["up"], down["slow"]) == (False, False) and "not running" in down["note"]
+    from automatu.models import KdOverview
+    assert KdOverview.model_validate(late).tracking_late and KdOverview.model_validate(slow).slow

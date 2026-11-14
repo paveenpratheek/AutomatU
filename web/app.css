@@ -706,3 +706,4 @@ ul.kfruns li { border-radius: 12px; }
 .kdbody .status { position: static; text-align: left; font-size: 14px; color: var(--ink-3); margin: 0 0 12px; }
 .kx .mt, .kdcard .mt, .kdlist .mt { color: var(--ink-3); font-size: 13px; }
 .kdbody .dks-head { color: var(--ink-3); }
+.kdup.slow .dot { background: var(--hot); }

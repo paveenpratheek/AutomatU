@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addFlowStep, askHtml, askText, citations, deskFormHtml, flowReadHtml, formBody, hexParts, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
+import { addFlowStep, askHtml, askText, citations, deskFormHtml, flowReadHtml, formBody, hexParts, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, runsHtml, setFlowField, starterFlow, toneOf, trackMark, trackedOn } from './kd.js';
 import { model, boxesUnder } from './hexmain.js';
 
@@ -179,4 +179,20 @@ test('Ask shows the question, each quoted sentence with its numbered hex, the so
   assert.match(askHtml({ q: 'x', busy: true }, []), /Reading the canvases/);
   assert.match(askHtml({ q: 'x', err: 'Knowledge Desk is not running' }, []), /<p class="said">Knowledge Desk is not running/);
   assert.match(askHtml({ q: 'x', only: true, a: { only: 'built', sentences: [], passages: [] } }, []), /Nothing on your canvases answers that among built work/);
+});
+
+test('a slow Knowledge Desk keeps the page as last read and says so; only one that is down empties it', () => {
+  const slow = { up: false, slow: true, note: 'Knowledge Desk did not answer in time', desks: [], tracking: [] };
+  const kept = mergeOverview(OV, slow);
+  assert.equal(kept.desks[0].name, 'Portfolio', 'the desks stay');
+  assert.equal(kept.late, 'Knowledge Desk did not answer in time');
+  assert.match(kdDesksHtml(kept, null, [], ''), /did not answer in time - showing the desks as last read/);
+  const down = { up: false, slow: false, note: 'Knowledge Desk is not running', desks: [], tracking: [] };
+  assert.equal(mergeOverview(OV, down), down, 'a refused connection replaces it');
+  assert.equal(mergeOverview(null, slow), slow, 'nothing read before: nothing to keep');
+  const late = { ...OV, tracking: [], tracking_late: true };
+  const merged = mergeOverview(OV, late);
+  assert.equal(merged.tracking.length, 2, 'the tracked boxes as last read');
+  assert.match(kdTrackingHtml(merged), /Tracking did not answer in time - showing the tracked boxes as last read/);
+  assert.equal(mergeOverview(OV, OV), OV, 'a full answer is taken as it is');
 });
