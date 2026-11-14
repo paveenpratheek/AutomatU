@@ -212,6 +212,8 @@ class KdOverview(BaseModel):
     url: str
     up: bool
     note: str = ""
+    slow: bool = False            # it is there but did not answer in time - not "not running"
+    tracking_late: bool = False   # desks and index came, the tracked boxes did not in time
     desks: list[KdDesk] = []
     tracking: list[DeskTracked] = []
     canvases: list[KdCanvas] = []
