@@ -93,6 +93,49 @@ def _older(code: int) -> str | None:
     return "this Knowledge Desk is older: restart it with the new Work Desks" if code == 404 else None
 
 
+async def ask(question: str, only: str | None = "built", transport=None) -> dict:
+    """The user's question on the Ask section, put to Knowledge Desk as any
+    desk puts one: an A2A SendMessage with AutomatU's token. What comes back is
+    its answer as it gave it - sentences quoted from the canvases, each with
+    its hex - and AutomatU keeps none of it."""
+    question = (question or "").strip()
+    if not question:
+        return {"error": "ask a question"}
+    token = _token()
+    if not token:
+        return {"error": "no token for Knowledge Desk - run workdesks init"}
+    data = {"question": question[:2000]}
+    if only == "built":
+        data["only"] = "built"
+    body = {"jsonrpc": "2.0", "id": 1, "method": "SendMessage",
+            "params": {"message": {"messageId": os.urandom(8).hex(), "role": "ROLE_USER", "parts": [{"data": data}]}}}
+    try:
+        async with httpx.AsyncClient(timeout=SLOW, transport=transport) as c:
+            r = await c.post(kd_url() + "/", json=body,
+                             headers={"Authorization": "Bearer " + token, "A2A-Version": "1.0"})
+    except httpx.HTTPError:
+        return {"error": "Knowledge Desk is not running: workdesks desk knowledge-desk"}
+    if r.status_code == 401:
+        return {"error": "Knowledge Desk refused AutomatU's token"}
+    try:
+        j = r.json()
+    except ValueError:
+        return {"error": f"Knowledge Desk answered {r.status_code}"}
+    if j.get("error"):
+        return {"error": str(j["error"].get("message") or j["error"])}
+    res = j.get("result") or {}
+    task = res.get("task") or {}
+    if task and (task.get("status") or {}).get("state") not in (None, "TASK_STATE_COMPLETED"):
+        said = " ".join(p.get("text", "") for p in ((task.get("status") or {}).get("message") or {}).get("parts") or [])
+        return {"error": said.strip() or "Knowledge Desk could not answer"}
+    parts = [p for a in task.get("artifacts") or [] for p in a.get("parts") or []] or (res.get("message") or {}).get("parts") or []
+    answer = next((p["data"] for p in parts if isinstance(p.get("data"), dict)), None)
+    if answer is None:
+        return {"error": "Knowledge Desk answered with something AutomatU could not read"}
+    return {"question": question, "only": "built" if only == "built" else None,
+            "sentences": answer.get("sentences") or [], "passages": answer.get("passages") or []}
+
+
 async def flows(desk: str, transport=None) -> dict:
     """A created desk's flows, the steps they are made from, the rules, and its runs (K5)."""
     code, j = await _get("/knowledge/flows", {"desk": desk}, transport)

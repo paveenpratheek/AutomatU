@@ -129,3 +129,38 @@ def test_only_automatus_own_page_may_save_a_flow_or_answer_a_stop(store, monkeyp
     for path, body in (("/api/kd/flows/save", {"desk": "portfolio", "name": "x", "steps": []}), ("/api/kd/runs/answer", {"run": "r-1", "yes": True})):
         assert c.post(path, json=body, headers={"origin": "http://evil.example"}).status_code == 403
         assert c.post(path, json=body, headers={"origin": "http://testserver"}).status_code == 200
+
+
+def test_a_question_is_put_to_knowledge_desk_over_a2a_and_its_cited_answer_comes_back(kd):
+    """The Ask section: an A2A SendMessage with AutomatU's token and the A2A
+    version, built work only by default; the answer is the task's data part."""
+    sent = []
+    answer = {"question": "q", "only": "built", "sentences": [{"text": "Pydantic models", "hex": "h:AutomatU/tm-1/14. Typed data",
+              "address": "AutomatU Build Plan (totem) > 14. Typed data", "status": "built"}],
+              "passages": [{"hex": "h:AutomatU/tm-1/14. Typed data", "address": "AutomatU Build Plan (totem) > 14. Typed data"}]}
+
+    def handle(req):
+        sent.append((req.url.path, req.headers.get("authorization"), req.headers.get("a2a-version"), json.loads(req.content)))
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"task": {"id": "t1", "status": {"state": "TASK_STATE_COMPLETED"},
+                                         "artifacts": [{"artifactId": "a1", "parts": [{"data": answer}]}]}}})
+    a = asyncio.run(knowledge.ask("  What did I build with Pydantic? ", "built", httpx.MockTransport(handle)))
+    path, auth, ver, body = sent[0]
+    assert (path, auth, ver, body["method"]) == ("/", "Bearer tok-a", "1.0", "SendMessage")
+    assert body["params"]["message"]["parts"] == [{"data": {"question": "What did I build with Pydantic?", "only": "built"}}]
+    assert a["sentences"][0]["hex"] == "h:AutomatU/tm-1/14. Typed data" and a["only"] == "built" and len(a["passages"]) == 1
+    asyncio.run(knowledge.ask("plans too", None, httpx.MockTransport(handle)))
+    assert sent[1][3]["params"]["message"]["parts"] == [{"data": {"question": "plans too"}}]
+
+
+def test_an_ask_that_cannot_be_answered_says_why(kd):
+    def down(req):
+        raise httpx.ConnectError("refused")
+    assert "not running" in asyncio.run(knowledge.ask("q", "built", httpx.MockTransport(down)))["error"]
+    assert asyncio.run(knowledge.ask("   ", "built", httpx.MockTransport(down)))["error"] == "ask a question"
+    refused = httpx.MockTransport(lambda req: httpx.Response(401))
+    assert "refused" in asyncio.run(knowledge.ask("q", "built", refused))["error"]
+    rpc = httpx.MockTransport(lambda req: httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "error": {"code": -32603, "message": "index not ready"}}))
+    assert asyncio.run(knowledge.ask("q", "built", rpc))["error"] == "index not ready"
+    failed = httpx.MockTransport(lambda req: httpx.Response(200, json={"result": {"task": {"status": {"state": "TASK_STATE_FAILED",
+                                 "message": {"parts": [{"text": "the embedder is down"}]}}}}}))
+    assert asyncio.run(knowledge.ask("q", "built", failed))["error"] == "the embedder is down"
