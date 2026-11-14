@@ -236,6 +236,71 @@ class KdDeskAnswer(BaseModel):
     problem: str | None = None
 
 
+# ------------------------------------------------------------ talking to the agent from its hex (box 30)
+
+class TalkConversation(BaseModel):
+    """One of the agent's recent conversations on the project, in the app it was had in."""
+    platform: str            # claude, antigravity
+    id: str
+    title: str
+    at: str
+    cwd: str = ""
+
+
+class TalkStep(BaseModel):
+    id: str
+    title: str
+    status: str
+
+
+class TalkOption(BaseModel):
+    id: str
+    name: str
+    kind: str
+
+
+class TalkAsk(BaseModel):
+    title: str
+    options: list[TalkOption]
+
+
+class TalkRun(BaseModel):
+    """One task given from a hex, and what the agent said and did with it."""
+    id: str
+    canvas: str
+    platform: str
+    conversation: str
+    text: str
+    state: str               # starting, working, asking, done, stopped, failed
+    reply: str = ""
+    steps: list[TalkStep] = []
+    ask: TalkAsk | None = None
+    error: str = ""
+    started: str
+    ended: str | None = None
+
+
+class TalkView(BaseModel):
+    """What the agents box on a canvas's hex shows."""
+    canvas: str
+    repo: str | None = None
+    agents: list[str] = []
+    conversations: list[TalkConversation] = []
+    run: TalkRun | None = None
+    note: str = ""
+
+
+class TalkStart(BaseModel):
+    canvas: str
+    platform: str
+    conversation: str
+    text: str
+
+
+class TalkAnswer(BaseModel):
+    option: str | None = None
+
+
 class DeskRunStep(BaseModel):
     """One step of a run as the desk recorded it: who did it, how it ended,
     and what it cited, recorded, made or asked (box 21, t-2ddbfdabb6)."""
