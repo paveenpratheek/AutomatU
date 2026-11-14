@@ -41,7 +41,7 @@ export function buildCodeMap(cv) {
   const used = new Set(cv.places.flatMap((p) => (p.sections.length ? [p.sections[0]] : [WAIT])));
   for (const s of sections) if (used.has(s)) groupFor(s);
   if (used.has(WAIT)) groupFor(WAIT);
-  groups.forEach((g, i) => { g.col = g.wait ? '#8A8E95' : PAL[i % PAL.length]; });
+  groups.forEach((g, i) => { g.col = g.wait ? '#C9C9C9' : PAL[i % PAL.length]; });
 
   const commitText = (sha) => { const c = cv.commits[sha]; return Array.isArray(c) ? c[1] : c || ''; };
   const commitDate = (sha) => { const c = cv.commits[sha]; return Array.isArray(c) ? c[0] : ''; };

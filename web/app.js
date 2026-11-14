@@ -19,7 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
-import { SECTIONS, addFlowStep, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
+import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
 
@@ -27,16 +27,16 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = (address) => String(address).split(' > ').pop();
 
-const CANVAS = { ring: 'rgba(27, 29, 33, 0.38)', strong: '#D8D3C6', fill: '#E9E5DA', soft: '#F6F4EE', ink: '#1B1D21', swatch: '#8A8576', glow: 'rgba(233, 229, 218, 0.95)' };
-const PALS = [
-  { ring: 'rgba(176, 68, 122, 0.55)', strong: '#EBC4D7', fill: '#F5DCE8', soft: '#FBF0F5', ink: '#7D2353', swatch: '#B0447A', glow: 'rgba(245, 220, 232, 0.9)' },
-  { ring: 'rgba(47, 91, 211, 0.55)', strong: '#C5D5F6', fill: '#DCE6FA', soft: '#F1F5FD', ink: '#1D3E8A', swatch: '#2F5BD3', glow: 'rgba(220, 230, 250, 0.9)' },
-  { ring: 'rgba(194, 87, 26, 0.55)', strong: '#F1C9AC', fill: '#F8E0CF', soft: '#FDF4ED', ink: '#7A3410', swatch: '#C2571A', glow: 'rgba(248, 224, 207, 0.9)' },
-  { ring: 'rgba(31, 122, 110, 0.55)', strong: '#B6E0D6', fill: '#D5EEE8', soft: '#EEF8F5', ink: '#165A50', swatch: '#1F7A6E', glow: 'rgba(213, 238, 232, 0.9)' },
-  { ring: 'rgba(107, 79, 187, 0.55)', strong: '#D2C7F1', fill: '#E4DDF7', soft: '#F4F1FC', ink: '#432C8C', swatch: '#6B4FBB', glow: 'rgba(228, 221, 247, 0.9)' },
-];
-/* Plan boxes on the code map: more of them than totems, so a longer list. */
-const BOXCOLS = ['#B0447A', '#2F5BD3', '#C2571A', '#1F7A6E', '#6B4FBB', '#9A6A00', '#0F7C91', '#7A8B1C', '#A33A3A', '#46617D', '#D6336C', '#2B8A3E'];
+/* Canvases are white hexagons; totems and their boxes take a soft tone each.
+   A selected hexagon is ringed in clay - the one warm colour outside the tones. */
+const CANVAS = { ring: '#DEDEDE', strong: '#F2F2F2', fill: '#F6F6F6', soft: '#FFFFFF', ink: '#1F1E1D', swatch: '#C9C9C9', glow: 'rgba(242, 242, 242, 0.9)' };
+const SELECT = { ring: '#C6613F', fill: 'linear-gradient(180deg, #FFFFFF 0%, #FBEFE9 100%)' };
+const chan = (hex) => [0, 2, 4].map((i) => parseInt(hex.replace('#', '').slice(i, i + 2), 16));
+const rgba = (hex, a) => `rgba(${chan(hex).join(', ')}, ${a})`;
+const mix = (hex, k) => 'rgb(' + chan(hex).map((v) => Math.round(255 + (v - 255) * k)).join(', ') + ')';   // k of the colour, the rest white
+const PALS = TONES.slice(0, 6).map((t, i) => ({ ring: rgba(DEEP[i], 0.5), strong: t, fill: mix(t, 0.6), soft: mix(t, 0.2), ink: '#1F1E1D', swatch: DEEP[i], glow: rgba(t, 0.45) }));
+/* Plan boxes on the code map: the same soft tones. */
+const BOXCOLS = TONES;
 const CHIPS = ['canvas', 'alignment', 'GitX', 'calibration'];
 const HEX = 'polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%)';
 
@@ -53,7 +53,7 @@ export const S = {
   repos: [], repo: null, code: {}, codeFailed: '', cg: null, cc: null, cview: null, fresh: new Set(),
   notices: null, agents: null, drop: null, noticesFailed: '',
   canvasList: null, canvasBusy: '', canvasSaid: '', canvasFailed: '',
-  kdSec: 'desks', kd: null, kdForm: null, kdSaid: '', kf: null, kdMon: null,
+  kdSec: 'ask', kd: null, ask: { q: '', only: true }, kdForm: null, kdSaid: '', kf: null, kdMon: null,
 };
 
 /* The Knowledge Desk tab and its sections (box 25): Agents and Workflows live inside it. */
@@ -126,9 +126,9 @@ function renderMain() {
     const tk = S.track.on.size ? trackMark(id, id === 'root' ? [] : boxesUnder(reg, id), S.track.on) : null;
     const nm = x.name, lenDiv = nm.length > 26 ? 11 : (nm.length > 14 ? 9 : 7);
     const fs = Math.max(10, Math.min(o.maxFs, W / lenDiv));
-    const fill = o.kind === 'canvas' ? grad(p.soft, p.strong) : o.kind === 'totem' ? grad(p.fill, p.strong) : o.leaf ? grad('#FFFFFF', p.soft) : grad(p.soft, p.fill);
-    return { id, l: at[0] - W / 2, t: at[1] - H / 2, w: W, h: H, fs, subFs: Math.max(9, Math.min(12, fs - 3)), weight: o.kind === 'totem' || o.kind === 'canvas' ? 700 : 600,
-      title: nm, sub: o.sub, line: sel ? '#141413' : p.ring, inset: sel ? 2 : 1, fill, ink: p.ink, op: 1, hits: hh, arr: hh ? heatArr(id) : null, sel, pf: p.fill,
+    const fill = sel ? SELECT.fill : o.kind === 'canvas' ? 'linear-gradient(180deg, #FFFFFF 0%, #F2F2F2 100%)' : o.kind === 'totem' ? grad(p.fill, p.strong) : o.leaf ? grad('#FFFFFF', p.soft) : grad(p.soft, p.fill);
+    return { id, l: at[0] - W / 2, t: at[1] - H / 2, w: W, h: H, fs, subFs: Math.max(9, Math.min(13, fs - 3)), weight: 600,
+      title: nm, sub: o.sub, line: sel ? SELECT.ring : p.ring, inset: sel ? 2.5 : 1, fill, ink: p.ink, op: 1, hits: hh, arr: hh ? heatArr(id) : null, sel, pf: p.fill,
       kws: [], heat: '', act: o.leaf ? 'read' : 'open', aria: (o.leaf ? 'Read ' : 'Open ') + nm, at, tk };
   };
   if (view === 'root') {
@@ -189,20 +189,18 @@ function renderMain() {
 
   stage.innerHTML =
     `<div class="world ${S.tick ? anim : ''}" style="transform-origin: ${S.ox || w / 2}px ${S.oy || h / 2}px">` +
-    (focused ? `<div class="hexclip" aria-hidden="true" style="position:absolute;left:${w / 2 - BW / 2}px;top:${80 + (h - 90 - BH) / 2}px;width:${BW}px;height:${BH}px;background:radial-gradient(closest-side, ${bp.glow} 0%, rgba(244, 242, 236, 0) 100%)"></div>` +
+    (focused ? `<div class="hexclip" aria-hidden="true" style="position:absolute;left:${w / 2 - BW / 2}px;top:${80 + (h - 90 - BH) / 2}px;width:${BW}px;height:${BH}px;background:radial-gradient(closest-side, ${bp.glow} 0%, rgba(255, 255, 255, 0) 100%)"></div>` +
       `<svg class="ghost" aria-hidden="true" width="${BW}" height="${BH}" style="left:${w / 2 - BW / 2}px;top:${80 + (h - 90 - BH) / 2}px"><polygon points="${hexPts(BW, BH)}" fill="none" stroke="${bp.ring.replace(/0\.\d+\)$/, '0.16)')}"></polygon></svg>` : '') +
-    ghosts.map((g) => `<svg class="ghost" aria-hidden="true" width="${g.w}" height="${g.h}" style="left:${g.l}px;top:${g.t}px"><polygon points="${pts}" fill="none" stroke="${g.line}"></polygon></svg>`).join('') +
-    cells.map((c) => `<div class="cell hexclip" style="left:${c.l}px;top:${c.t}px;width:${c.w}px;height:${c.h}px;opacity:${c.op};background:${c.tk && c.tk.own && !c.sel ? (c.tk.moved ? '#E07A00' : '#FFB347') : c.line}">` +
+    ghosts.map((g) => `<svg class="ghost" aria-hidden="true" width="${g.w}" height="${g.h}" style="left:${g.l}px;top:${g.t}px"><polygon points="${pts}" fill="none" stroke="${g.line}" stroke-opacity="0.4"></polygon></svg>`).join('') +
+    cells.map((c) => `<div class="cell hexclip" style="left:${c.l}px;top:${c.t}px;width:${c.w}px;height:${c.h}px;opacity:${c.op};background:${c.tk && c.tk.own && !c.sel ? (c.tk.moved ? '#C6613F' : '#E3A48C') : c.line}">` +
       `<button type="button" class="hx hexclip" data-act="${c.act}" data-id="${c.id}" data-x="${c.at[0]}" data-y="${c.at[1]}" aria-label="${esc(c.aria)}" style="inset:${c.inset}px;background:${c.fill};color:${c.ink}">` +
       `<span class="t" style="font-size:${c.fs}px;font-weight:${c.weight}">${esc(c.title)}</span><span class="s" style="font-size:${c.subFs}px">${esc(c.sub)}</span>` +
       (c.tk ? `<span class="trk-mark${c.tk.moved ? ' moved' : ''}">${esc(c.tk.label)}</span>` : '') +
       (c.kws.length ? `<span class="heat">${c.kws.map((k) => `<i><b style="background:${k.col}"></b>${k.n}</i>`).join('')}${c.heat ? `<span>${c.heat}</span>` : ''}</span>` : '') +
       `</button></div>`).join('') +
     `</div>` +
-    `<svg class="grain" aria-hidden="true" width="100%" height="100%"><filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"></feTurbulence><feColorMatrix type="saturate" values="0"></feColorMatrix></filter><rect width="100%" height="100%" filter="url(#grain)"></rect></svg>` +
-    (focused ? `<div class="title"><div class="n" style="color:${bp.ink}">${esc(node.name)}</div><div class="kd">${esc(viewKind(reg, node))}</div></div>` : '') +
-    `<div class="legend">` + [['#CFC9BA', 'Canvas'], ['#9AA6C8', 'Totem'], ['#D4DCEF', 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#E39B0B', 'Traffic'], ['#FFB347', 'Tracked by a desk']]
-      .map(([c, t]) => `<span><span class="sw hexclip" style="background:${c}"></span>${t}</span>`).join('') + `</div>`;
+    `<div class="legend">` + [['#E4E4E4', 'Canvas'], [TONES[0], 'Totem'], [mix(TONES[0], 0.4), 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#C6613F', 'Selected'], ['#E3A48C', 'Tracked by a desk']]
+      .map(([c, t]) => `<span><span class="sw hexclip" style="background:${c};box-shadow:inset 0 0 0 1px rgba(31,30,29,0.12)"></span>${t}</span>`).join('') + `</div>`;
 
   renderMainPanel(reg, view, node, ids.length ? ids : node.children, Q, heat, heatArr, arranged);
 }
@@ -303,7 +301,7 @@ function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
   }
   let traffic = '';
   if (Q.terms.length && rowIds.length) {
-    const rows = rowIds.map((id) => { const i = dominant(Q.kw, Q.on, heatArr(id)); return { name: reg[id].name, n: heat(id), col: i >= 0 ? Q.kw[i].col : '#E39B0B' }; }).sort((a, b) => b.n - a.n);
+    const rows = rowIds.map((id) => { const i = dominant(Q.kw, Q.on, heatArr(id)); return { name: reg[id].name, n: heat(id), col: i >= 0 ? Q.kw[i].col : '#C6613F' }; }).sort((a, b) => b.n - a.n);
     const max = Math.max(1, ...rows.map((r) => r.n));
     traffic = `<h3>Traffic</h3><p>${esc(groupText(Q))}</p><div class="bars">` +
       rows.map((r) => `<div class="bar"><span class="nm">${esc(r.name)}</span><span class="tr"><i style="width:${Math.round(r.n / max * 100)}%;background:${r.col}"></i></span><span class="n">${r.n}</span></div>`).join('') + `</div>`;
@@ -520,9 +518,9 @@ function renderCode() {
     if (r.also.length) dots += 'M' + (r.x - 2.6).toFixed(1) + ' ' + r.y.toFixed(1) + 'a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0';
   }
   let svg = Object.values(fills).map((f) => `<path d="${f.d.join('')}" fill="${f.col}" fill-opacity="${f.op.toFixed(2)}"/>`).join('');
-  svg += `<path class="edge" d="${map.clusters.map((c) => c.edge).join('')}" fill="none" stroke="#FBFAF7" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
-  if (dots) svg += `<path class="edge" d="${dots}" fill="#FFFFFF" stroke="#5B5F66" stroke-width="0.6"/>`;
-  svg += `<path class="edge" d="${map.groups.map((g) => g.edge).join('')}" fill="none" stroke="#141413" stroke-width="1.4" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+  svg += `<path class="edge" d="${map.clusters.map((c) => c.edge).join('')}" fill="none" stroke="#FFFFFF" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
+  if (dots) svg += `<path class="edge" d="${dots}" fill="#FFFFFF" stroke="#5E5D59" stroke-width="0.6"/>`;
+  svg += `<path class="edge" d="${map.groups.map((g) => g.edge).join('')}" fill="none" stroke="#B0AEA5" stroke-width="1.1" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
 
   /* Traffic: the rest steps back; each lit region takes its strongest
      keyword's colour at one of five strengths (log scale). */
@@ -531,7 +529,7 @@ function renderCode() {
   if (hits) for (const [rid, per] of hits) { const s = traffic(Q.on, per); if (s) { lit.set(rid, { s, dom: dominant(Q.kw, Q.on, per) }); max = Math.max(max, s); } }
   const groupHeat = {}, clusterHeat = {};
   if (lit.size) {
-    svg += `<path d="M-40 -40H${map.W + 40}V${map.H + 40}H-40Z" fill="#F4F2EC" fill-opacity="0.68"/>`;
+    svg += `<path d="M-40 -40H${map.W + 40}V${map.H + 40}H-40Z" fill="#FCFCFC" fill-opacity="0.72"/>`;
     const LV = [0.3, 0.48, 0.66, 0.82, 0.96], bk = {};
     for (const r of map.regions) {
       const t = lit.get(r.id);
@@ -545,33 +543,33 @@ function renderCode() {
   }
   /* Newly placed code glows (the live map). */
   const fresh = map.regions.filter((r) => S.fresh.has(r.id));
-  if (fresh.length) svg += `<path class="freshpath" d="${fresh.map((r) => hexD(r.x, r.y)).join('')}" fill="none" stroke="#141413" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+  if (fresh.length) svg += `<path class="freshpath" d="${fresh.map((r) => hexD(r.x, r.y)).join('')}" fill="none" stroke="#1F1E1D" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
   /* Selection: a box's outline, or a cluster's dashed outline with dotted lines to the clusters it shares code with. */
   const g0 = S.cg != null ? map.groups.find((g) => g.address === S.cg) : null, c0 = S.cc != null ? map.clusters[S.cc] : null;
-  if (g0) svg += `<path d="${g0.edge}" fill="none" stroke="#141413" stroke-width="3.5" vector-effect="non-scaling-stroke"/>`;
+  if (g0) svg += `<path d="${g0.edge}" fill="none" stroke="#1F1E1D" stroke-width="3.5" vector-effect="non-scaling-stroke"/>`;
   const r0 = S.cr ? map.regions.find((r) => r.id === S.cr) : null;
   let links = 0;
   if (c0) {
-    svg += `<path d="${c0.edge}" fill="none" stroke="#141413" stroke-width="2.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>`;
+    svg += `<path d="${c0.edge}" fill="none" stroke="#1F1E1D" stroke-width="2.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>`;
     const lk = c0.links.map(([o]) => { const x = map.clusters[o]; return `M${c0.at[0]} ${c0.at[1]}L${x.at[0]} ${x.at[1]}`; }).join('');
     links = c0.links.length;
-    if (lk) svg += `<path d="${lk}" fill="none" stroke="#141413" stroke-width="1.5" stroke-dasharray="2 5" vector-effect="non-scaling-stroke"/>`;
+    if (lk) svg += `<path d="${lk}" fill="none" stroke="#1F1E1D" stroke-width="1.5" stroke-dasharray="2 5" vector-effect="non-scaling-stroke"/>`;
   } else if (g0) {
     const lk = [];
     for (const id of g0.clusters) for (const [o] of map.clusters[id].links) if (map.clusters[o].group !== g0.id) lk.push(`M${map.clusters[id].at[0]} ${map.clusters[id].at[1]}L${map.clusters[o].at[0]} ${map.clusters[o].at[1]}`);
     links = lk.length;
-    if (lk.length) svg += `<path d="${lk.join('')}" fill="none" stroke="#141413" stroke-width="1.5" stroke-dasharray="2 5" vector-effect="non-scaling-stroke"/>`;
+    if (lk.length) svg += `<path d="${lk.join('')}" fill="none" stroke="#1F1E1D" stroke-width="1.5" stroke-dasharray="2 5" vector-effect="non-scaling-stroke"/>`;
   }
 
-  if (r0) svg += `<path d="${hexD(r0.x, r0.y)}" fill="${map.groups.find((g) => g.id === r0.group).col}" fill-opacity="0.35" stroke="#141413" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
+  if (r0) svg += `<path d="${hexD(r0.x, r0.y)}" fill="${map.groups.find((g) => g.id === r0.group).col}" fill-opacity="0.35" stroke="#1F1E1D" stroke-width="3" vector-effect="non-scaling-stroke"/>`;
   const gl = map.groups.map((g) => {
     const on = g0 && g0.id === g.id, n = groupHeat[g.id] || 0;
-    const ink = on ? '#FFFFFF' : (lit.size && !n ? '#8A8E95' : '#141413');
-    return `<button type="button" class="glab" data-group="${esc(g.address)}" style="left:${g.at[0].toFixed(1)}px;top:${(g.box.t - 8).toFixed(1)}px;border-color:${g.col};background:${on ? g.col : (n ? tint(g.col, 0.18) : '#FFFFFF')};color:${ink}">${esc(g.name)}${n ? ' · ' + n : ''}</button>`;
+    const ink = on ? '#FFFFFF' : (lit.size && !n ? '#9B9A95' : '#1F1E1D');
+    return `<button type="button" class="glab" data-group="${esc(g.address)}" style="left:${g.at[0].toFixed(1)}px;top:${(g.box.t - 8).toFixed(1)}px;border-color:${on ? '#1F1E1D' : '#E4E4E4'};background:${on ? '#1F1E1D' : (n ? g.col : 'rgba(255, 255, 255, 0.93)')};color:${ink}">${esc(g.name)}${n ? ' · ' + n : ''}</button>`;
   }).join('');
   const cl = lod !== 'g' ? map.clusters.filter((c) => c.size >= 3 || clusterHeat[c.id]).map((c) => {
     const n = clusterHeat[c.id] || 0;
-    return `<div class="clab" style="left:${c.at[0].toFixed(1)}px;top:${c.at[1].toFixed(1)}px;${lit.size && !n ? 'color:#8A8E95;' : ''}">${esc(c.name)}${n ? ' · ' + n : ''}</div>`;
+    return `<div class="clab" style="left:${c.at[0].toFixed(1)}px;top:${c.at[1].toFixed(1)}px;${lit.size && !n ? 'color:#9B9A95;' : ''}">${esc(c.name)}${n ? ' · ' + n : ''}</div>`;
   }).join('') : '';
 
   const placed = cv.places.filter((p) => p.sections.length).length;
@@ -796,7 +794,7 @@ function netHtml(cv) {
   }
   const label = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
   let nodes = `<button type="button" class="netnode" data-netsel="" title="${esc(R.file + '::' + R.name)}" style="left:${pos['#'].x - 9}px;top:${pos['#'].y - 9}px">` +
-    `<span class="mk" style="width:18px;height:18px;border-radius:4px;background:#141413;border:2px solid #141413"></span><span class="lb">${esc(label(R.name || '', 46))}</span></button>`;
+    `<span class="mk" style="width:18px;height:18px;border-radius:4px;background:#1F1E1D;border:2px solid #1F1E1D"></span><span class="lb">${esc(label(R.name || '', 46))}</span></button>`;
   for (const id of N.order) {
     const t = N.thoughts[id], col = KCOL[t.kind] || '#5B5F66', p = pos[id], on = S.netSel === id;
     nodes += `<button type="button" class="netnode" data-netsel="${esc(id)}" title="${esc(id + ' · ' + (t.kind || '') + '\n' + t.text)}" style="left:${(p.x - 7).toFixed(1)}px;top:${(p.y - 7).toFixed(1)}px;opacity:${t.current ? 1 : 0.5}">` +
@@ -886,7 +884,7 @@ function renderCodePanel(cv, map, Q, lit, groupHeat, clusterHeat, placed) {
   const noCode = cv.run.sections.filter((s) => !reached.has(s));
   P.innerHTML = crumbsHtml() + `<div class="k">Code map</div><h2>${esc(cv.run.repo.split('/').pop())}</h2>` +
     `<p>Each hexagon is one code region at ${esc(cv.run.head)}, under the plan box it does, judged by its commits and decisions. Inside a box, regions of one line of work - one commit scope - form a cluster. A region doing two boxes' work sits on the border between them (white dot). Zoom in for clusters; click to open a box or a cluster.</p>` +
-    `<div class="legendgrid"><span><span class="sw-hex hexclip" style="background:#2F5BD3"></span>Placed under a plan box</span><span><span class="sw-hex hexclip" style="background:#8A8E95;opacity:.5"></span>Not yet placed</span><span><span class="sw-hex hexclip" style="background:#2F5BD3;opacity:.45"></span>Fainter: older code</span><span><span class="dotw"></span>Serves two boxes</span></div>` +
+    `<div class="legendgrid"><span><span class="sw-hex hexclip" style="background:#B9D2EA"></span>Placed under a plan box</span><span><span class="sw-hex hexclip" style="background:#C9C9C9;opacity:.5"></span>Not yet placed</span><span><span class="sw-hex hexclip" style="background:#B9D2EA;opacity:.45"></span>Fainter: older code</span><span><span class="dotw"></span>Serves two boxes</span></div>` +
     `<div class="stats"><div><b>${placed}</b><span>placed</span></div><div><b>${cv.places.length - placed}</b><span>waiting</span></div><div><b>${noCode.length}</b><span>boxes with no code yet</span></div></div>` +
     trafficBox + driftHtml() + `<h3>Plan boxes</h3><div class="rows">` +
     map.groups.map((g) => `<button type="button" class="row" data-group="${esc(g.address)}"><span class="sw hexclip" style="background:${g.col};opacity:${g.wait ? 0.5 : 1}"></span><span class="nm">${esc(g.name)}</span><span class="mt">${g.clusters.length} · ${g.size}</span></button>`).join('') +
@@ -943,21 +941,74 @@ document.addEventListener('wheel', (e) => {
 
 /* ------------------------------------------------------------ chrome */
 
+const ICONS = {
+  main: '<path d="M4.5 2h7L15 8l-3.5 6h-7L1 8Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
+  code: '<path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+  canvas: '<rect x="2" y="2.5" width="12" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 6h12M6 6v7.5" stroke="currentColor" stroke-width="1.3"/>',
+  kd: '<path d="M2 12.5h12M3.5 12.5V7h9v5.5M6 7V4.5h4V7" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+};
+const icon = (k) => `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">${ICONS[k]}</svg>`;
+const setHtml = (el, html) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
+
+/* Under the views, the list that goes with the one open: the canvases you
+   added, the repositories with a code map, or the questions you asked. */
+function sideListHtml() {
+  if (S.tab === 'code') {
+    return `<span class="sl-h">Repositories</span>` + (S.repos.length ? S.repos.map((r) => {
+      const cv = S.code[r.repo], n = cv ? cv.places.length : '';
+      return `<button type="button" class="sl-row${r.repo === S.repo ? ' on' : ''}" data-repo="${esc(r.repo)}" title="${esc(r.repo)}"><span class="nm">${esc(r.repo.split('/').pop())}</span><span class="n">${n}</span></button>`;
+    }).join('') : '<span class="sl-empty">No map made yet.</span>');
+  }
+  if (S.tab === 'kd') {
+    const hist = askHistory();
+    return `<span class="sl-h">Recent questions</span>` + (hist.length ? hist.map((h, i) =>
+      `<button type="button" class="sl-row${S.kdSec === 'ask' && S.ask && S.ask.q === h.q ? ' on' : ''}" data-ask-again="${i}" title="${esc(h.q)}"><span class="nm">${esc(h.q)}</span></button>`).join('')
+      : '<span class="sl-empty">The questions you ask show here.</span>');
+  }
+  const on = S.tab === 'canvas' ? S.bcanvas : S.path[1];
+  return `<span class="sl-h">Canvases</span>` + (S.m ? S.m.reg.root.children.map((id) => {
+    const x = S.m.reg[id];
+    return `<button type="button" class="sl-row${id === on ? ' on' : ''}" data-sl-canvas="${id}"><span class="nm">${esc(x.name)}</span><span class="n">${x.children.length} totem${x.children.length === 1 ? '' : 's'}</span></button>`;
+  }).join('') : '') +
+    `<button type="button" id="canvasesbtn" class="sl-add${S.drop === 'canvases' ? ' on' : ''}" data-drop="canvases" aria-expanded="${S.drop === 'canvases'}" aria-controls="drop" title="Add a canvas from NoteX, or take one out">` +
+    `<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>Add from NoteX</button>`;
+}
+
 function renderChrome() {
   const Q = search();
-  $('term').classList.toggle('on', !!S.query.trim());
-  $('chips').innerHTML = CHIPS.map((c) => `<button type="button" class="pill${S.query.trim().toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-chip="${esc(c)}">${esc(c)}</button>`).join('');
+  document.querySelector('.app').dataset.tab = S.tab;
+  $('term').closest('.field').classList.toggle('on', !!S.query.trim());
+  setHtml($('chips'), CHIPS.map((c) => `<button type="button" class="pill${S.query.trim().toLowerCase() === c.toLowerCase() ? ' on' : ''}" data-chip="${esc(c)}">${esc(c)}</button>`).join(''));
   const target = S.m ? boardTarget() : null;
-  $('tabs').innerHTML = [['Main', 'main', 'The hexagon map: find things'], ['Code', 'code', 'The code map: the plan and its code'],
+  setHtml($('tabs'), [['Main', 'main', 'The hexagon map: find things'], ['Code', 'code', 'The code map: the plan and its code'],
     ['Canvas', 'canvas', target ? 'Open the ' + S.m.reg[target].name + ' canvas, as CanvasX shows it' : 'Pick a canvas on the map first'],
-    ['Knowledge Desk', 'kd', 'The junction to Work Desks: the desks and who sits at them, their flows, what they track, and monitoring']].map(([l, k, why]) =>
-    `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}" title="${esc(why)}"${k === 'canvas' && !target ? ' disabled' : ''}>${l}</button>`).join('');
-  let crumbs;
-  if (S.tab === 'main' && S.m) crumbs = S.path.filter((id) => S.m.reg[id]).map((id, i, arr) => ({ name: S.m.reg[id].name, go: i < arr.length - 1 ? 'path:' + i : '' }));
-  else if (S.tab === 'canvas' && S.m && S.bcanvas) crumbs = [{ name: 'Map', go: 'path:0' }, { name: S.m.reg[S.bcanvas].name, go: 'canvas:' + S.bcanvas }, { name: 'Open canvas', go: '' }];
-  else if (S.tab === 'kd') crumbs = [{ name: 'Knowledge Desk', go: '' }, { name: (SECTIONS.find((x) => x[0] === S.kdSec) || [0, ''])[1], go: '' }];
-  else crumbs = [{ name: 'Code map', go: '' }].concat(S.repo ? [{ name: S.repo.split('/').pop(), go: '' }] : []);
-  $('crumbs').innerHTML = crumbs.map((c, i) => (i ? '<span class="arrow" aria-hidden="true">›</span>' : '') + `<button type="button" class="crumb${c.go ? '' : ' last'}" data-crumb="${c.go}">${esc(c.name)}</button>`).join('');
+    ['Knowledge Desk', 'kd', 'Ask about your projects, and the junction to Work Desks: the desks, their flows, what they track, and monitoring']].map(([l, k, why]) =>
+    `<button type="button" role="tab" class="tab" data-tab="${k}" aria-selected="${S.tab === k}" title="${esc(why)}"${k === 'canvas' && !target ? ' disabled' : ''}>${icon(k)}${l}</button>`).join(''));
+  setHtml($('sidelist'), sideListHtml());
+  const up = $('kdup');
+  up.hidden = S.tab !== 'kd' || !S.kd;
+  if (!up.hidden) {
+    up.classList.toggle('down', !S.kd.up);
+    setHtml(up, `<span class="dot"></span><span class="tx"><span>${S.kd.up ? 'Knowledge Desk is up' : 'Knowledge Desk is not answering'}</span>` +
+      `<span class="m">${esc(S.kd.up ? String(S.kd.url || '').replace(/^https?:\/\//, '') + ' · A2A 1.0' : (S.kd.note || ''))}</span></span>`);
+  }
+  let crumbs, title;
+  if (S.tab === 'main' && S.m) {
+    const ids = S.path.filter((id) => S.m.reg[id]);
+    crumbs = ids.slice(0, -1).map((id, i) => ({ name: id === 'root' ? 'All canvases' : S.m.reg[id].name, go: 'path:' + i }));
+    const last = S.m.reg[ids[ids.length - 1]];
+    if (ids.length === 1) { crumbs = [{ name: 'All canvases', go: '' }]; title = 'What are you looking for?'; }
+    else { crumbs.push({ name: viewKind(S.m.reg, last), go: '' }); title = last.name; }
+  } else if (S.tab === 'canvas' && S.m && S.bcanvas) { crumbs = [{ name: 'All canvases', go: 'path:0' }, { name: 'Open canvas', go: '' }]; title = S.m.reg[S.bcanvas].name; }
+  else if (S.tab === 'kd') { crumbs = [{ name: 'Knowledge Desk', go: '' }]; title = HEADS[S.kdSec] || 'Knowledge Desk'; }
+  else {
+    const cv = S.repo && (S.tRun ? curCode() : S.code[S.repo]);
+    crumbs = [{ name: S.repo ? S.repo.split('/').pop() + (cv ? ` · map ${cv.run.id} · ${String(cv.run.head).slice(0, 7)} · ${ist(cv.run.made_at)}` : '') : 'Code map', go: '' }];
+    title = 'Code under the plan';
+  }
+  setHtml($('crumbs'), crumbs.map((c, i) => (i ? '<span class="arrow" aria-hidden="true">›</span>' : '') + `<button type="button" class="crumb${c.go ? '' : ' last'}" data-crumb="${c.go}">${esc(c.name)}</button>`).join(''));
+  $('title').textContent = title || '';
+  setHtml($('headr'), S.tab === 'kd' ? kdBarHtml(S.kdSec, S.kd) : '');
   const shown = Q.kw.map((k, i) => ({ k, i })).filter(({ i }) => Q.on[i].shown);
   $('kwf').hidden = !shown.length;
   $('kwf').innerHTML = shown.length ? `<span class="lead">Show</span>` + shown.map(({ k, i }) => {
@@ -983,7 +1034,7 @@ function renderTop() {
   bell.classList.toggle('ring', count > 0);
   bell.setAttribute('aria-label', count ? [boxes ? `${boxes} box${boxes === 1 ? '' : 'es'} the code has moved past` : '',
     fresh ? `${fresh} agent job${fresh === 1 ? '' : 's'} waiting, failed or finished` : ''].filter(Boolean).join('; ') : 'Notices: nothing new');
-  for (const [id, k] of [['bellbtn', 'bell'], ['agentsbtn', 'agents'], ['canvasesbtn', 'canvases']]) { $(id).setAttribute('aria-expanded', String(S.drop === k)); $(id).classList.toggle('on', S.drop === k); }
+  for (const [id, k] of [['bellbtn', 'bell'], ['agentsbtn', 'agents'], ['canvasesbtn', 'canvases']]) { const el = $(id); if (!el) continue; el.setAttribute('aria-expanded', String(S.drop === k)); el.classList.toggle('on', S.drop === k); }
   const D = $('drop');
   D.hidden = !S.drop;
   if (!S.drop) return;
@@ -1080,7 +1131,8 @@ function typingIn(sel) {
 /* The page refreshes every few seconds; what it draws is replaced only when it
    changed, so a refresh that brings nothing new never resets the page. */
 function kdStage(html) {
-  const next = `<div class="kdpage">${kdBarHtml(S.kdSec, S.kd)}<div class="kdbody">${html}</div></div>`;
+  renderChrome();
+  const next = `<div class="kdpage"><div class="kdbody">${html}</div></div>`;
   if (S.kdDrawn === next && $('stage').querySelector('.kdpage')) return;
   S.kdDrawn = next;
   $('stage').innerHTML = next;
@@ -1101,8 +1153,9 @@ for (const ev of ['input', 'change']) {
 }
 
 function renderKd() {
+  if (S.kdSec === 'ask') { if (typingIn('.askbox')) return renderChrome(); return kdStage(askHtml(S.ask, addedCanvases())); }
   if (S.kdSec === 'flows') return renderWorkflows();
-  if (S.kdSec === 'tracking') return kdStage(kdTrackingHtml(S.kd));
+  if (S.kdSec === 'tracking') return kdStage(kdTrackingHtml(S.kd, addedCanvases()));
   if (S.kdSec === 'monitoring') return kdStage(monitoringHtml(S.kdMon));
   return renderDesks();
 }
@@ -1119,9 +1172,57 @@ function renderDesks() {
   /* Keep what is being typed in the form: redraw it only when nothing in it has focus. */
   if (typingIn('[data-kdform]')) return;
   kdStage(kdDesksHtml(S.kd, S.kdForm, addedCanvases(), S.kdSaid) +
-    `<section class="kd"><h2>Desks with an agent hosted</h2></section>` +
+    `<section class="kd"><h2>Hosted on this PC</h2></section>` +
     (S.desks ? desksHtml(S.desks) : '<div class="status">Looking for the desks…</div>'));
 }
+
+/* ------------------------------------------------------------ Ask */
+
+/* The questions asked here, newest first, kept in this browser only - the
+   question, never the answer: asking again reads the canvases as they are now. */
+function askHistory() {
+  try { const v = JSON.parse(localStorage.getItem('automatu.asks') || '[]'); return Array.isArray(v) ? v.filter((h) => h && h.q).slice(0, 8) : []; } catch (_) { return []; }
+}
+function rememberAsk(q, only) {
+  const next = [{ q, only }].concat(askHistory().filter((h) => h.q !== q)).slice(0, 8);
+  try { localStorage.setItem('automatu.asks', JSON.stringify(next)); } catch (_) {}
+}
+
+/* A question put to Knowledge Desk through AutomatU (over A2A, with AutomatU's
+   token); the answer replaces the one shown, and a late answer to an older
+   question is dropped. */
+function askNow(q, only) {
+  q = String(q || '').trim();
+  if (!q) return;
+  const A = S.ask = { q, only: only !== false, busy: true, a: null, err: '', cite: null };
+  rememberAsk(q, A.only);
+  S.tab = 'kd'; S.kdSec = 'ask';
+  render();
+  getJson('/api/kd/ask?q=' + encodeURIComponent(q) + '&only=' + (A.only ? 'built' : 'all'))
+    .then((j) => { if (S.ask !== A) return; if (j.error) A.err = j.error; else { A.a = j; A.cite = (j.sentences || []).length ? 1 : null; } })
+    .catch((e) => { if (S.ask === A) A.err = 'AutomatU could not ask: ' + e.message; })
+    .then(() => { if (S.ask === A) { A.busy = false; if (inKd('ask')) render(); } });
+}
+
+function askClick(el) {
+  const A = S.ask, a = el.dataset.ask;
+  if (a === 'only') { A.only = !(A.only !== false); return render(); }
+  if (a === 'plans') return askNow(A.q, false);
+  if (a === 'built') return askNow(A.q, true);
+  if (a === 'copy') {
+    const done = () => { el.textContent = 'Copied'; setTimeout(() => { el.textContent = 'Copy with citations'; }, 1600); };
+    try { navigator.clipboard.writeText(askText(A)).then(done, () => { el.textContent = 'Could not copy'; }); } catch (_) { el.textContent = 'Could not copy'; }
+  }
+}
+
+document.addEventListener('submit', (e) => {
+  const f = e.target.closest('[data-askform]');
+  if (!f) return;
+  e.preventDefault();
+  const q = new FormData(f).get('q');
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  askNow(q, S.ask.only);
+});
 
 /* What Knowledge Desk serves the tab (box 25), and the Tracking layer on Main. */
 function loadKd() {
@@ -1130,7 +1231,7 @@ function loadKd() {
     S.kd = j;
     if (S.tab === 'kd' && S.kdSec !== 'flows') renderKd();
     else if (S.tab === 'kd' && (!S.kf || !S.kf.desk) && (j.desks || []).length) renderWorkflows();   // the desks came in
-    else if (S.tab === 'kd') { const bar = document.querySelector('.kdbar'); if (bar) bar.outerHTML = kdBarHtml(S.kdSec, S.kd); }
+    else if (S.tab === 'kd') renderChrome();
     else if (S.tab === 'main' && before !== JSON.stringify(j.tracking)) { S.track = null; renderMain(); }
   }).catch(() => {});
 }
@@ -1249,8 +1350,14 @@ function kfClick(el) {
   const K = S.kf, a = el.dataset.kf, i = +el.dataset.i;
   K.said = ''; K.problems = [];
   if (a === 'desk') { S.kf = { desks: K.desks, desk: el.dataset.slug, data: null, name: null, steps: [] }; renderWorkflows(); return loadKf(el.dataset.slug); }
-  if (a === 'open') { const f = (K.data.flows || []).find((x) => x.name === el.dataset.name); if (f) { K.name = f.name; K.steps = JSON.parse(JSON.stringify(f.steps)); } return renderWorkflows(); }
-  if (a === 'new') { K.name = ''; K.steps = starterFlow(); return renderWorkflows(); }
+  if (a === 'open') { const f = (K.data.flows || []).find((x) => x.name === el.dataset.name); if (f) { K.name = f.name; K.steps = JSON.parse(JSON.stringify(f.steps)); K.editing = false; } return renderWorkflows(); }
+  if (a === 'new') { K.name = ''; K.steps = starterFlow(); K.editing = true; return renderWorkflows(); }
+  if (a === 'edit') { K.editing = true; return renderWorkflows(); }
+  if (a === 'done') {
+    const f = (K.data.flows || []).find((x) => x.name === K.name) || (K.data.flows || [])[0];
+    if (f) { K.name = f.name; K.steps = JSON.parse(JSON.stringify(f.steps)); }
+    K.editing = false; return renderWorkflows();
+  }
   if (a === 'up' || a === 'down') { K.steps = moveFlowStep(K.steps, i, a === 'up' ? -1 : 1); return renderWorkflows(); }
   if (a === 'remove') { K.steps = removeFlowStep(K.steps, i); return renderWorkflows(); }
   if (a === 'save') {
@@ -1499,6 +1606,26 @@ document.addEventListener('click', (e) => {
   if (pic) return openPic(pic.dataset.pic, pic.dataset.picname);
   const intr = e.target.closest('[data-int-task]');
   if (intr) return interruptDesk(intr);
+  const askb = e.target.closest('button[data-ask]');
+  if (askb) return askClick(askb);
+  const cite = e.target.closest('[data-ask-cite]');
+  if (cite) { const n = +cite.dataset.askCite; S.ask.cite = S.ask.cite === n ? null : n; return render(); }
+  const again = e.target.closest('[data-ask-again]');
+  if (again) { const h = askHistory()[+again.dataset.askAgain]; if (h) askNow(h.q, h.only); return; }
+  const slc = e.target.closest('[data-sl-canvas]');
+  if (slc && S.m) {
+    const id = slc.dataset.slCanvas;
+    if (S.tab === 'canvas') { if (S.bcanvas !== id) S.bview = null; S.bcanvas = id; return render(); }
+    S.tab = 'main'; return go(pathTo(S.m.reg, id), null, 0, 0, 1);
+  }
+  const deskFlow = e.target.closest('button[data-kd="flow"]');
+  if (deskFlow) {
+    const desks = ((S.kd && S.kd.desks) || []).map((d) => ({ slug: d.slug, name: d.name }));
+    S.kdSec = 'flows'; S.deskRun = null;
+    S.kf = { desks, desk: deskFlow.dataset.slug, data: null, name: null, steps: [] };
+    openWorkflows(); render(); loadKf(deskFlow.dataset.slug);
+    return;
+  }
   const kds = e.target.closest('[data-kdsec]');
   if (kds) { S.kdSec = kds.dataset.kdsec; S.deskRun = null; if (S.kdSec === 'flows') openWorkflows(); if (S.kdSec === 'monitoring') loadMon(); return render(); }
   const kdb = e.target.closest('button[data-kd]');
@@ -1585,7 +1712,7 @@ document.addEventListener('pointermove', (e) => {
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (closePic()) return;
-  if (S.drop) { const k = S.drop; S.drop = null; renderTop(); $({ bell: 'bellbtn', canvases: 'canvasesbtn' }[k] || 'agentsbtn').focus(); return; }
+  if (S.drop) { const k = S.drop; S.drop = null; renderTop(); const f = $({ bell: 'bellbtn', canvases: 'canvasesbtn' }[k] || 'agentsbtn'); if (f) f.focus(); return; }
   if (S.tab === 'code' && S.net) { S.net = null; S.netSel = null; render(); return; }
   if (S.tab === 'code' && S.cr) { S.cr = null; render(); return; }
   if (S.tab === 'code' && S.tMoment) { S.tMoment = null; render(); return; }
@@ -1623,7 +1750,7 @@ export async function loadCode() {
 }
 
 /* A link can open a view: ?tab=code&repo=<name>&box=<box name>&q=<keywords>
-   or ?open=<canvas>>…>(box name) on the Main map - for sharing a view or
+   or ?open=<canvas>>…>(box name) on the Main map, or ?ask=<question> on Ask - for sharing a view or
    recording one. */
 function fromLink() {
   const u = new URLSearchParams(location.search);
@@ -1637,6 +1764,7 @@ function fromLink() {
     S.tab = 'canvas';
   }
   if (u.get('box')) S.pendingBox = u.get('box');
+  if (u.get('ask')) S.pendingAsk = { q: u.get('ask'), only: u.get('only') !== 'all' };
   if (u.get('region')) { S.pendingRegion = u.get('region'); S.pendingNet = u.get('net') === '1'; }
   if (u.get('phase')) S.pendingPhase = +u.get('phase');
   if (u.get('moment')) S.pendingMoment = u.get('moment');
@@ -1669,6 +1797,7 @@ async function start() {
   loadDesks();
   loadKd();
   if (inKd('monitoring')) loadMon();
+  if (S.pendingAsk) { askNow(S.pendingAsk.q, S.pendingAsk.only); S.pendingAsk = null; }
   setInterval(() => {
     follow().catch(() => {}); loadNotices(); loadDesks(); loadKd();
     if (inKd('desks') && S.deskRun) loadDeskRun();

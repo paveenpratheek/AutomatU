@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addFlowStep, deskFormHtml, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
-  removeFlowStep, runsHtml, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
+import { addFlowStep, askHtml, askText, citations, deskFormHtml, flowReadHtml, formBody, hexParts, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, monitoringHtml, moveFlowStep,
+  removeFlowStep, runsHtml, setFlowField, starterFlow, toneOf, trackMark, trackedOn } from './kd.js';
 import { model, boxesUnder } from './hexmain.js';
 
 const ROWS = [
@@ -17,15 +17,19 @@ test('the section bar marks the one open and counts changed tracked boxes', () =
   const h = kdBarHtml('tracking', OV);
   assert.match(h, /data-kdsec="tracking" aria-pressed="true"/);
   assert.match(h, /Tracking<span class="badge">1<\/span>/);
-  assert.match(kdBarHtml('desks', { up: false, note: 'Knowledge Desk is not running' }), /Knowledge Desk is not running/);
+  assert.ok(h.indexOf('data-kdsec="ask"') < h.indexOf('data-kdsec="desks"'), 'Ask comes first');
+  assert.match(h, /data-kdsec="monitoring"/);
 });
 
 test('a desk card says its role, canvases, who sits there and what it tracks', () => {
   const h = kdDesksHtml(OV, null, ['Portfolio', 'Resume'], '');
   assert.match(h, /<h3>Portfolio<\/h3>/);
-  assert.match(h, /Portfolio <span class="mt">written as portfolio/);
+  assert.match(h, /Main canvas<\/span><span class="v">Portfolio</);
+  assert.match(h, /v2 · owner portfolio/);
+  assert.match(h, /data-kd="flow" data-slug="portfolio">Its flow/);
+  assert.match(h, /<span class="kdchip"><svg[^>]*>.*?<\/svg>Resume<\/span>/);
   assert.match(h, /<b>Claude Code<\/b> <span class="mt">\(claude-code 2\.3\)/);
-  assert.match(h, /2 boxes · <b class="hot">1 changed since read/);
+  assert.match(h, /2 boxes, <b class="hot">1 changed/);
   assert.match(h, /data-kd="remove" data-slug="portfolio"/);
   assert.match(h, /Create a desk/);
 });
@@ -50,8 +54,10 @@ test('the form offers only added canvases, and keeps a change to the desk it cha
 test('tracking lists each desk\'s boxes, changed first, and the index', () => {
   const h = kdTrackingHtml(OV);
   assert.ok(h.indexOf('14. Typed data') < h.indexOf('3. Map view'), 'changed first');
-  assert.match(h, /<li class="changed">/);
-  assert.match(h, /Proj<\/span><span class="mt">2 boxes/);
+  assert.match(h, /<div class="kdli changed">/);
+  assert.match(h, /Proj<\/span><span class="k">2 boxes · 12 Nov/);
+  assert.match(h, /<b>2<\/b><span>boxes tracked<\/span>.*<b>1<\/b><span>changed since last read<\/span>.*<b>12 Nov<\/b>/s);
+  assert.match(h, /Changed since Portfolio last read them/);
   assert.match(kdTrackingHtml({ ...OV, tracking: [] }), /No desk tracks a box yet/);
 });
 
@@ -90,7 +96,7 @@ test('the flow editor shows the steps with who does each, the rules, and a stop 
     { id: 'r-0', flow: 'Build page', version: 1, task: 'old', state: 'given_up', step: 3, said: 'gave up after 3 tries' }];
   const kf = { desks: [{ slug: 'portfolio', name: 'Portfolio' }], desk: 'portfolio', name: 'Build page',
     steps: [{ step: 'read_main' }, { step: 'agent', mode: 'draft', instruction: 'Write it' }, { step: 'check_citations', tries: 3 }, { step: 'stop', question: 'Write this?' }],
-    data: { steps: cat, rules: ['A flow starts by reading the Main canvas.'], flows: [{ name: 'Build page', version: 2 }], runs }, problems: ['step 2: x'] };
+    data: { steps: cat, rules: ['A flow starts by reading the Main canvas.'], flows: [{ name: 'Build page', version: 2 }], runs }, problems: ['step 2: x'], editing: true };
   const h = kfHtml(kf);
   assert.match(h, /<b>Agent step<\/b><span class="mt">the agent at the desk/);
   assert.match(h, /<b>Your stop<\/b><span class="mt">you/);
@@ -117,4 +123,60 @@ test('the Tracking layer finds each tracked box on the map and counts them above
   assert.equal(trackMark(proj, boxesUnder(reg, proj), on).label, '2 tracked · changed');
   const other = Object.keys(reg).find((id) => reg[id].name === '5. Other');
   assert.equal(trackMark(other, [], on), null);
+});
+
+test('a flow reads step by step - who does each, its words, and the rules - with its editor one click away', () => {
+  const cat = { read_main: { actor: 'code', name: 'Read the Main canvas', does: 'Reads the Main canvas' }, gather: { actor: 'code', name: 'Gather', does: '' },
+    agent: { actor: 'agent', name: 'Agent step', does: '' }, stop: { actor: 'user', name: 'Your stop', does: '' } };
+  const f = { name: 'PortFolio', version: 1, steps: [{ step: 'read_main' }, { step: 'gather', built_only: true }, { step: 'agent', mode: 'draft', instruction: 'Write <it>' }, { step: 'stop', question: 'Add these?' }] };
+  const h = flowReadHtml(f, cat, 'Portfolio', [{ flow: 'PortFolio', version: 1, state: 'done' }]);
+  assert.match(h, /Portfolio desk · version 1 · 4 steps/);
+  assert.match(h, /<b>Read the Main canvas<\/b><span class="kfa a-code">Knowledge Desk<\/span>/);
+  assert.match(h, /<b>Gather<\/b><span class="kfa a-code">Knowledge Desk<\/span><span class="mt">built work only/);
+  assert.match(h, /<span class="kfa a-agent">agent<\/span><span class="mt">draft<\/span><\/div><q class="kfq">Write &lt;it&gt;<\/q>/);
+  assert.match(h, /<span class="kfa a-user">you<\/span><\/div><q class="kfq">Add these\?/);
+  assert.equal((h.match(/class="kfr ran"/g) || []).length, 4, 'a finished run of this version fills every step');
+  assert.doesNotMatch(flowReadHtml(f, cat, 'Portfolio', []), /kfr ran/);
+  const kf = { desks: [{ slug: 'portfolio', name: 'Portfolio' }], desk: 'portfolio', name: 'PortFolio', steps: f.steps,
+    data: { steps: cat, rules: ['A flow starts by reading the Main canvas.'], flows: [f], runs: [] } };
+  const r = kfHtml(kf);
+  assert.match(r, /data-kf="edit">Edit steps/);
+  assert.doesNotMatch(r, /data-kf-field/, 'read, not edited, until Edit steps');
+  assert.match(r, /Every flow keeps these rules.*A flow starts by reading/s);
+  assert.match(kfHtml({ ...kf, editing: true }), /data-kf="done">Done editing/);
+});
+
+const ANSWER = { question: 'What did I build with Pydantic?', only: 'built',
+  sentences: [{ text: 'Pydantic models for what AutomatU keeps', hex: 'h:AutomatU/tm-a39e299aa1/14. Typed data', status: 'built' },
+    { text: 'A new repository, in Python 3.12', hex: 'h:Work Desks/tm-5cea2b609f/0. The repository', status: 'built' },
+    { text: 'Typed notices <checked>', hex: 'h:AutomatU/tm-a39e299aa1/14. Typed data', status: 'built' }],
+  passages: [{ hex: 'h:AutomatU/tm-a39e299aa1/14. Typed data', address: 'AutomatU Build Plan (totem) > 14. Typed data' },
+    { hex: 'h:Work Desks/tm-5cea2b609f/0. The repository', address: 'Work Desks Build Plan (totem) > 0. The repository' },
+    { hex: 'h:PortFolio/tm-9/Skills from the projects', address: 'Skills (totem) > Skills from the projects' }] };
+
+test('a hex names its canvas and box, and an answer numbers the boxes it cites in the order first cited', () => {
+  assert.deepEqual(hexParts('h:Work Desks/tm-5cea2b609f/0. The repository'), { canvas: 'Work Desks', id: 'tm-5cea2b609f', box: '0. The repository' });
+  const C = citations(ANSWER);
+  assert.deepEqual(C.sources.map((s) => [s.n, s.canvas, s.under, s.box]),
+    [[1, 'AutomatU', 'AutomatU Build Plan', '14. Typed data'], [2, 'Work Desks', 'Work Desks Build Plan', '0. The repository']]);
+  assert.deepEqual(C.read.map((r) => r.box), ['Skills from the projects'], 'a passage no sentence cites is only read');
+  assert.equal(askText({ a: ANSWER }).split('\n')[2], '"Typed notices <checked>" [1]');
+  assert.deepEqual(toneOf('Harness', ['AutomatU', 'Harness']), { fill: '#F4C6B8', deep: '#C6613F' });
+  assert.deepEqual(toneOf('Unknown', []), toneOf('Unknown', []), 'a canvas not added still keeps one colour');
+});
+
+test('Ask shows the question, each quoted sentence with its numbered hex, the sources, and what to do next', () => {
+  const h = askHtml({ q: ANSWER.question, only: true, a: ANSWER, cite: 1 }, ['AutomatU', 'Work Desks']);
+  assert.match(h, /<div class="askq">What did I build with Pydantic\?<\/div>/);
+  assert.match(h, /<span class="asktag">Built work only<\/span>/);
+  assert.match(h, /class="askline on" data-ask-cite="1"><span class="tx">“Pydantic models for what AutomatU keeps”/);
+  assert.match(h, /“Typed notices &lt;checked&gt;”/);
+  assert.match(h, /3 sentences · 2 boxes · 2 canvases/);
+  assert.match(h, /class="asksrc on" data-ask-cite="1">.*?<b>14\. Typed data<\/b><span class="mt">AutomatU › AutomatU Build Plan<\/span><span class="hexid">tm-a39e299aa1/s);
+  assert.match(h, /Also read.*Skills from the projects/s);
+  assert.match(h, /data-ask="plans">Include plans/);
+  assert.match(askHtml({}, []), /What do you want to know\?/);
+  assert.match(askHtml({ q: 'x', busy: true }, []), /Reading the canvases/);
+  assert.match(askHtml({ q: 'x', err: 'Knowledge Desk is not running' }, []), /<p class="said">Knowledge Desk is not running/);
+  assert.match(askHtml({ q: 'x', only: true, a: { only: 'built', sentences: [], passages: [] } }, []), /Nothing on your canvases answers that among built work/);
 });

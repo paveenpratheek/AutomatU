@@ -271,6 +271,14 @@ async def kd_run_answer(request: Request) -> dict:
     return await answer_run(str(b.get("run") or ""), bool(b.get("yes")))
 
 
+@app.get("/api/kd/ask")
+async def kd_ask(q: str, only: str | None = "built") -> dict:
+    """A question from the Ask section, put to Knowledge Desk over A2A: its
+    cited sentences back, built work only unless the user turns that off."""
+    from .knowledge import ask
+    return await ask(q, "built" if only == "built" else None)
+
+
 @app.get("/api/kd/monitoring")
 async def kd_monitoring(desk: str | None = None) -> dict:
     """Each agent's traced calls at a desk, and the A2A tasks between desks (K6)."""
