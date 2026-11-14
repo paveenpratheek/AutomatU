@@ -53,3 +53,16 @@ test('a running task shows the words, the steps, the reply and the ask with its 
   assert.match(done, /It reads every box\..*Done.*data-talk-new="1"/s);
   assert.match(talkHtml({ canvas: 'Work Desks', data: DATA, run, dismissed: 't1' }, NOW), /textarea/, 'a task put away gives the field back');
 });
+
+test('a desk canvas shows who sits at its desk: a green dot on the box, and since when in the window', () => {
+  const sat = [{ agent: 'Claude Code', since: '2026-11-14T10:24:17Z', away: false }];
+  const box = agentsBoxHtml({ l: 0, t: 0, w: 200, h: 173 }, 'PortFolio', sat, 'Portfolio');
+  assert.match(box, /class="agbox on"/);
+  assert.match(box, /<i class="agdot"/);
+  assert.match(box, /Claude Code is sitting at the Portfolio desk/);
+  assert.doesNotMatch(agentsBoxHtml({ l: 0, t: 0, w: 200, h: 173 }, 'PortFolio', [{ ...sat[0], away: true }], 'Portfolio'), /agbox on/, 'away is not sitting');
+  const h = talkHtml({ canvas: 'PortFolio', data: { desk: 'Portfolio', sitting: sat, agents: ['Claude Code'], conversations: DATA.conversations } }, NOW);
+  assert.match(h, /<b><i class="agdot"[^>]*><\/i>Claude Code<\/b><span class="mt">sitting at the Portfolio desk since \d\d:\d\d<\/span>/);
+  assert.match(talkHtml({ canvas: 'PortFolio', data: { desk: 'Portfolio', sitting: [], agents: ['portfolio'], conversations: [] } }, NOW),
+    /nobody is sitting at the Portfolio desk/);
+});

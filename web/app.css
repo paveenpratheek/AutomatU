@@ -745,3 +745,7 @@ ul.tk-steps li.in_progress::before, ul.tk-steps li.pending::before { background:
 .tk-ask .kbtn { min-height: 32px; font-size: 13px; }
 .tk-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tk-foot .kbtn { min-height: 32px; font-size: 13px; }
+.agbox.on { border-color: var(--live); color: var(--ink); }
+.agdot { display: inline-block; width: 7px; height: 7px; border-radius: 4px; background: var(--live); }
+.agbox .agdot { position: absolute; top: -3px; right: -3px; box-shadow: 0 0 0 2px #FFFFFF; }
+.tk-who .agdot { margin-right: 6px; vertical-align: 1px; }

@@ -347,12 +347,47 @@ def talk_view(canvas: str) -> dict:
     repo, repos = _talk_place(canvas)
     run = talk.latest(canvas)
     out = {"canvas": canvas, "repo": repo, "run": run.view() if run else None}
-    if not repo:
-        out["note"] = "This canvas plans no repository, so there is no project to find the agent's conversations by."
-        return out
-    out["agents"] = [a["agent"] for a in agents() if any(r["repo"] == repo for r in a["repos"])]
-    out["conversations"] = talk.conversations(repo, repos)
+    desk = _talk_desk(canvas)
+    if desk:
+        # A desk's Main canvas: the agents sitting at it, and the conversations that sat there.
+        out["desk"] = desk["name"]
+        out["sitting"] = [{"agent": s.get("agent") or "an agent", "client": s.get("client") or "", "since": s.get("since"),
+                           "away": bool(s.get("away"))} for s in desk.get("sitting") or []]
+        out["agents"] = [s["agent"] for s in out["sitting"]] or [desk.get("owner") or desk["name"]]
+        out["conversations"] = talk.desk_conversations({desk["name"], desk.get("slug") or ""}, repos)
+    if repo:
+        out["agents"] = list(dict.fromkeys(out.get("agents", []) + [a["agent"] for a in agents() if any(r["repo"] == repo for r in a["repos"])]))
+        mine = talk.conversations(repo, repos)
+        out["conversations"] = sorted({c["platform"] + c["id"]: c for c in out.get("conversations", []) + mine}.values(),
+                                      key=talk._sort_key, reverse=True)[:talk.LIMIT]
+    if not repo and not desk:
+        out["note"] = "This canvas plans no repository and is no desk's Main canvas, so there is no agent to find conversations for."
     return out
+
+
+def _talk_desk(canvas: str) -> dict | None:
+    """The desk whose Main canvas this is, as Knowledge Desk serves it - or
+    none, when it is not one or Knowledge Desk cannot say."""
+    import asyncio
+    from .knowledge import overview
+    try:
+        ov = asyncio.run(overview())
+    except Exception:
+        return None
+    return next((d for d in ov.get("desks") or [] if d.get("main_canvas") == canvas), None)
+
+
+def _talk_known(canvas: str, platform: str, conversation: str) -> dict | None:
+    """One of the agent's conversations on this canvas - by its project or its desk - or none."""
+    view = talk_view(canvas)
+    from . import talk
+    found = view.get("conversations") or []
+    if not any(c["id"] == conversation for c in found):          # older than the five shown
+        repo, repos = _talk_place(canvas)
+        desk = _talk_desk(canvas)
+        found = (talk.conversations(repo, repos, limit=50) if repo else []) + \
+                (talk.desk_conversations({desk["name"], desk.get("slug") or ""}, repos, limit=50) if desk else [])
+    return next((c for c in found if c["id"] == conversation and c["platform"] == platform), None)
 
 
 @app.post("/api/talk", response_model=TalkRun)
@@ -361,13 +396,13 @@ def talk_start(ask: TalkStart, request: Request) -> dict:
     picked - only from AutomatU's own page, as the Interrupt is."""
     _own_page(request, "give an agent a task")
     from . import talk
-    repo, repos = _talk_place(ask.canvas)
-    if not repo:
-        raise HTTPException(400, "this canvas plans no repository")
-    if not any(c["id"] == ask.conversation and c["platform"] == ask.platform for c in talk.conversations(repo, repos, limit=50)):
-        raise HTTPException(400, "that is not one of the agent's conversations on this project")
+    conv = _talk_known(ask.canvas, ask.platform, ask.conversation)
+    if not conv:
+        raise HTTPException(400, "that is not one of the agent's conversations on this canvas")
+    repo, _ = _talk_place(ask.canvas)
     try:
-        return talk.start(ask.canvas, repo, ask.platform, ask.conversation, ask.text).view()
+        # where the agent works: the project's folder, else the conversation's own
+        return talk.start(ask.canvas, repo or conv.get("cwd") or "", ask.platform, ask.conversation, ask.text).view()
     except (ValueError, RuntimeError) as e:
         raise HTTPException(409, str(e))
 
