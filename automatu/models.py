@@ -236,79 +236,86 @@ class KdDeskAnswer(BaseModel):
     problem: str | None = None
 
 
-# ------------------------------------------------------------ talking to the agent from its hex (box 30)
+# ------------------------------------------------------------ agents in AutomatU, one at each desk (box 30, t-e02af0ac56)
 
-class TalkConversation(BaseModel):
-    """One of the agent's recent conversations on the project, in the app it was had in."""
-    platform: str            # claude, antigravity
-    id: str
+class DeskAgentStep(BaseModel):
+    """One tool step of the work the agent is doing now."""
     title: str
+    status: str              # working, done, failed
+
+
+class DeskAgentMessage(BaseModel):
+    """One line of a desk's chat: a message to the agent (from the user or
+    another agent), its reply, a permission it asked for, or a note."""
+    id: int
     at: str
-    cwd: str = ""
+    who: str                 # user, agent, or the caller that sent it: desk-agent-<slug>, main-agent, ...
+    by: str                  # who, in words
+    kind: str                # message, reply, ask, note
+    text: str
+    state: str = ""          # a message: queued, running, done, failed, stopped, taken back, not run; an ask: waiting, allowed, refused, not answered
+    data: dict = {}
 
 
-class TalkStep(BaseModel):
-    id: str
-    title: str
-    status: str
-
-
-class TalkOption(BaseModel):
+class DeskAgentModel(BaseModel):
     id: str
     name: str
-    kind: str
 
 
-class TalkAsk(BaseModel):
-    title: str
-    options: list[TalkOption]
+class DeskAgentNow(BaseModel):
+    """The agent placed at a desk, and what it is doing."""
+    agent: str               # agy, claude
+    model: str
+    folder: str
+    chosen_at: str
+    state: str               # idle, starting, working, waiting
+    working_on: int | None = None
+    steps: list[DeskAgentStep] = []
+    said: str = ""           # what it has said so far in the work it is on
 
 
-class TalkRun(BaseModel):
-    """One task given from a hex, and what the agent said and did with it."""
-    id: str
+class DeskAgentDesk(BaseModel):
+    slug: str
+    name: str
+    role: str = ""
+    main_canvas: str
+    attached: list[str] = []
+    owner: str = ""
+
+
+class DeskAgentView(BaseModel):
+    """What a canvas's Agents button opens: the desk whose Main canvas it is,
+    the agent placed there - or the choice of one - and the chat."""
     canvas: str
-    platform: str
-    conversation: str
-    text: str
-    state: str               # starting, working, asking, done, stopped, failed
-    reply: str = ""
-    steps: list[TalkStep] = []
-    ask: TalkAsk | None = None
-    error: str = ""
-    started: str
-    ended: str | None = None
-
-
-class TalkSitter(BaseModel):
-    """An agent sitting at the desk whose Main canvas this is, as Knowledge Desk says."""
-    agent: str
-    client: str = ""
-    since: str | None = None
-    away: bool = False
-
-
-class TalkView(BaseModel):
-    """What the agents box on a canvas's hex shows."""
-    canvas: str
-    repo: str | None = None
-    desk: str | None = None              # the desk whose Main canvas this is, if any
-    sitting: list[TalkSitter] = []
-    agents: list[str] = []
-    conversations: list[TalkConversation] = []
-    run: TalkRun | None = None
+    desk: DeskAgentDesk | None = None
+    agent: DeskAgentNow | None = None
+    messages: list[DeskAgentMessage] = []
+    models: dict[str, list[DeskAgentModel]] = {}
+    folder: str = ""         # where a newly chosen agent would work: the canvas's repository, if it plans one
     note: str = ""
 
 
-class TalkStart(BaseModel):
+class DeskAgentChoose(BaseModel):
     canvas: str
-    platform: str
-    conversation: str
+    agent: str
+    model: str
+    folder: str
+
+
+class DeskAgentSend(BaseModel):
+    canvas: str
     text: str
 
 
-class TalkAnswer(BaseModel):
-    option: str | None = None
+class DeskAgentAnswer(BaseModel):
+    canvas: str
+    ask: int
+    allow: bool
+
+
+class DeskAgentItem(BaseModel):
+    canvas: str
+    item: int | None = None
 
 
 class DeskRunStep(BaseModel):

@@ -20,6 +20,8 @@ dependencies = [
     "uvicorn>=0.30",
     "httpx>=0.27",
     "agent-client-protocol>=1.0,<2",
+    # The agents at the desks (box 30) use Work Desks' occupant, guard and
+    # policy: pip install -e "<Project WorkDesk folder>" (not on PyPI).
 ]
 
 [project.optional-dependencies]

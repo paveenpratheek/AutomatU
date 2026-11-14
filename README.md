@@ -49,6 +49,23 @@ node --test web/                           map view tests
 Paths to GitX and NoteX default to this machine's and are set with `GITX_DIR`,
 `NOTEX_RUNTIME`, `AUTOMATU_DB_URL` and `OLLAMA_URL`.
 
+### Agents at the desks
+
+The Agents button on a desk's hex places an agent at the desk: Antigravity
+(`agy`) or Claude, on the model chosen, working in the project's folder. AutomatU
+starts it with no app window over ACP and keeps it until it is detached or
+AutomatU stops; its chat, its permission asks and its queue are on the hex, and
+each desk's agent is an A2A agent at `http://127.0.0.1:7790/a2a/<desk>/` that
+Work Desks' `ask_desk` reaches by the desk's name. It uses Work Desks' occupant,
+guard and policy, so Work Desks is installed beside AutomatU:
+
+```
+.venv\Scripts\pip install -e "<Project WorkDesk folder>"
+```
+
+Each agent keeps its folder under `AUTOMATU_DESK_AGENTS`
+(default `E:\ter-manager\plugins\automatu\desk-agents`).
+
 ## License
 
 Copyright (C) 2026 Paveen Pratheek.

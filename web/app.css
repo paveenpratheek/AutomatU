@@ -709,7 +709,7 @@ ul.kfruns li { border-radius: 12px; }
 .kdup.slow .dot { background: var(--hot); }
 
 /* ---------- talking to the agent from its hex (box 30) */
-.agbox { position: absolute; z-index: 3; display: flex; align-items: center; justify-content: center; width: 26px; height: 22px; padding: 0; border: 1px solid #E4E4E4; border-radius: 7px; background: #FFFFFF; color: var(--ink-2); cursor: pointer; box-shadow: 0 1px 3px rgba(31, 30, 29, 0.08); }
+.agbox { position: absolute; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 4px; height: 22px; padding: 0 7px 0 6px; font-size: 11px; font-weight: 500; line-height: 1; border: 1px solid #E4E4E4; border-radius: 7px; background: #FFFFFF; color: var(--ink-2); cursor: pointer; box-shadow: 0 1px 3px rgba(31, 30, 29, 0.08); }
 .agbox:hover { border-color: var(--ink); color: var(--ink); }
 .agbox:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .talk { position: fixed; z-index: 30; display: flex; flex-direction: column; max-height: calc(100vh - 24px); }
@@ -753,3 +753,39 @@ ul.tk-steps li.in_progress::before, ul.tk-steps li.pending::before { background:
 .agdot { display: inline-block; width: 7px; height: 7px; border-radius: 4px; background: var(--live); }
 .agbox .agdot { position: absolute; top: -3px; right: -3px; box-shadow: 0 0 0 2px #FFFFFF; }
 .tk-who .agdot { margin-right: 6px; vertical-align: 1px; }
+
+/* agents in AutomatU, one at each desk (box 30): the choice and the chat */
+.tk-hb { display: flex; align-items: center; gap: 4px; flex: none; }
+.tk-link { border: 0; background: transparent; padding: 2px 6px; border-radius: 6px; font: inherit; font-size: 12px; color: var(--ink-3); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.tk-link:hover { color: var(--ink); background: var(--paper-2); }
+.tk-choose { display: flex; flex-direction: column; gap: 8px; }
+.tk-choose p { margin: 0; }
+.tk-choose select, .tk-choose input[type=text] { width: 100%; box-sizing: border-box; min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: #FFFFFF; font: inherit; font-size: 13px; color: var(--ink); }
+.tk-choose input[type=text] { font-family: var(--mono); font-size: 12px; }
+.tk-choose .kbtn { align-self: flex-start; margin-top: 4px; }
+.tk-seg { display: flex; gap: 4px; padding: 3px; border-radius: 11px; background: var(--paper-2); }
+.tk-seg label { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 30px; border-radius: 8px; font-size: 13px; color: var(--ink-3); cursor: pointer; }
+.tk-seg label.on { background: #FFFFFF; color: var(--ink); box-shadow: 0 1px 2px rgba(31, 30, 29, 0.1); }
+.tk-seg input { position: absolute; opacity: 0; pointer-events: none; }
+.tk-m { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tk-m.me { align-items: flex-end; }
+.tk-m.me .tk-q { max-width: 85%; }
+.tk-m.other .tk-q { align-self: flex-start; background: #E6EEF8; }
+.tk-m.note { align-self: center; max-width: 92%; font-size: 12px; color: var(--ink-4); text-align: center; }
+.tk-m.note.bad { color: #A33A3A; }
+.tk-m.ask { gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--paper-2); }
+.tk-m.ask.live { background: var(--hot-soft); }
+.tk-m.ask .kbtn { min-height: 30px; font-size: 13px; }
+.tk-m.reply.live { padding-left: 10px; border-left: 2px solid var(--hot); }
+.tk-by { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.tk-by b { font-weight: 500; }
+.tk-st { display: flex; align-items: center; gap: 6px; }
+.tk-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: var(--paper-3); font-size: 11px; color: var(--ink-3); }
+.tk-chip.live { background: var(--hot-soft); color: var(--hot-ink); }
+details.tk-d summary { font-size: 12px; color: var(--ink-4); cursor: pointer; }
+details.tk-d ul.tk-steps { margin-top: 4px; }
+ul.tk-steps li.done::before { background: var(--live); }
+ul.tk-steps li.working::before { background: var(--hot); }
+.tk-foot.col { flex-direction: column; align-items: stretch; gap: 6px; }
+.tk-foot .askrow .mt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
+.tk-foot .askrow { gap: 8px; }

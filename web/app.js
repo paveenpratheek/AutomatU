@@ -19,7 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
-import { agentsBoxHtml, talkHtml } from './talk.js';
+import { AGENT_NAMES, agentsBoxHtml, agentsHtml as deskAgentHtml } from './agents.js';
 import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
@@ -199,11 +199,11 @@ function renderMain() {
       (c.tk ? `<span class="trk-mark${c.tk.moved ? ' moved' : ''}">${esc(c.tk.label)}</span>` : '') +
       (c.kws.length ? `<span class="heat">${c.kws.map((k) => `<i><b style="background:${k.col}"></b>${k.n}</i>`).join('')}${c.heat ? `<span>${c.heat}</span>` : ''}</span>` : '') +
       `</button></div>`).join('') +
-    /* The agents box (box 30): on each canvas that plans a project or is a desk's
-       Main canvas, its agent can be given a task; a green dot while one sits there. */
+    /* The Agents button (box 30): on each canvas that plans a project or is a
+       desk's Main canvas; a green dot while an agent is at the desk. */
     (view === 'root' ? cells.map((c) => {
       const name = reg[c.id].name, desk = deskOf(name);
-      return (reg[c.id].repos || []).length || desk ? agentsBoxHtml(c, name, desk ? desk.sitting : [], desk ? desk.name : '') : '';
+      return (reg[c.id].repos || []).length || desk ? agentsBoxHtml(c, name, desk ? desk.sitting : [], desk ? desk.name : '', placedOn(name)) : '';
     }).join('') : '') +
     `</div>` +
     `<div class="legend">` + [['#E4E4E4', 'Canvas'], [TONES[0], 'Totem'], [mix(TONES[0], 0.4), 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#C6613F', 'Selected'], ['#E3A48C', 'Tracked by a desk']]
@@ -1232,18 +1232,18 @@ document.addEventListener('submit', (e) => {
   askNow(q, S.ask.only);
 });
 
-/* ------------------------------------------------------------ talking to the agent from its hex (box 30) */
+/* ------------------------------------------------------------ agents in AutomatU, one at each desk (box 30) */
 
-/* The window the agents box opens: outside the map, so redrawing the map never
-   closes it or loses what is being typed; the task runs on the server and is
-   asked after every moment while it works. */
-const talkLive = (r) => !!r && ['starting', 'working', 'asking'].includes(r.state);
+/* The window the Agents button opens: outside the map, so redrawing the map
+   never closes it or loses what is being typed. The agent works on the server;
+   the chat is read again every moment while the window is open, since other
+   agents write to it too. */
 let talkTimer = 0;
 
 function openTalk(canvas, btn) {
   if (S.talk && S.talk.canvas === canvas) return closeTalk();
   const r = btn.getBoundingClientRect();
-  S.talk = { canvas, x: r.left, y: r.bottom + 6, data: null, pick: '', draft: '', run: null, dismissed: '', said: '', busy: false };
+  S.talk = { canvas, x: r.left, y: r.bottom + 6, data: null, agent: 'agy', model: '', folder: undefined, draft: '', said: '', busy: false };
   renderTalk();
   loadTalk();
 }
@@ -1258,77 +1258,98 @@ function renderTalk() {
   const el = $('talk'), T = S.talk;
   el.hidden = !T;
   if (!T) { setHtml(el, ''); return; }
-  const w = Math.min(380, innerWidth - 24);
+  const w = Math.min(420, innerWidth - 24);
   el.style.width = w + 'px';
   el.style.left = Math.max(12, Math.min(T.x, innerWidth - w - 12)) + 'px';
   /* It never runs off the screen: opened low, it moves up to keep room; its
      height is what is left below where it opens, and only its middle scrolls. */
-  const top = Math.max(12, Math.min(T.y, innerHeight - 420));
+  const top = Math.max(12, Math.min(T.y, innerHeight - 480));
   el.style.top = top + 'px';
   el.style.maxHeight = (innerHeight - top - 12) + 'px';
   if (typingIn('#talk')) return;
-  /* Redrawn as the task runs: what is being read stays where it is, and the
-     newest words are followed only by someone already at the bottom. */
-  const body = el.querySelector('.tk-body'), steps = el.querySelector('.tk-steps');
+  /* Redrawn as the agent works: what is being read stays where it is, and the
+     newest lines are followed only by someone already at the bottom. */
+  const body = el.querySelector('.tk-body');
   const keep = body ? { top: body.scrollTop, end: body.scrollTop + body.clientHeight >= body.scrollHeight - 8 } : null;
-  const stepsEnd = steps ? steps.scrollTop + steps.clientHeight >= steps.scrollHeight - 8 : true, stepsTop = steps ? steps.scrollTop : 0;
-  setHtml(el, talkHtml(T));
-  const b2 = el.querySelector('.tk-body'), s2 = el.querySelector('.tk-steps');
-  if (b2 && keep) b2.scrollTop = keep.end ? b2.scrollHeight : keep.top;
-  if (s2) s2.scrollTop = stepsEnd ? s2.scrollHeight : stepsTop;
+  const open = [...el.querySelectorAll('details.tk-d[open]')].map((d) => d.closest('[data-line]') && d.closest('[data-line]').dataset.line);
+  setHtml(el, deskAgentHtml(T));
+  el.querySelectorAll('[data-line]').forEach((n) => { if (open.includes(n.dataset.line)) { const d = n.querySelector('details.tk-d'); if (d) d.open = true; } });
+  const b2 = el.querySelector('.tk-body');
+  if (b2) b2.scrollTop = !keep || keep.end ? b2.scrollHeight : keep.top;
 }
 
 function loadTalk() {
-  const T = S.talk;
-  if (!T) return;
-  getJson('/api/talk?canvas=' + encodeURIComponent(T.canvas))
-    .then((j) => { if (S.talk !== T) return; T.data = j; if (j.run && !T.run) T.run = j.run; renderTalk(); if (talkLive(T.run)) pollTalk(); })
-    .catch((e) => { if (S.talk === T) { T.data = { agents: [], conversations: [], note: 'Could not read the conversations: ' + e.message }; renderTalk(); } });
-}
-
-function pollTalk() {
   clearTimeout(talkTimer);
   const T = S.talk;
-  if (!T || !T.run) return;
-  getJson('/api/talk/run/' + encodeURIComponent(T.run.id))
-    .then((r) => { if (S.talk !== T) return; T.run = r; renderTalk(); if (talkLive(r)) talkTimer = setTimeout(pollTalk, 800); })
-    .catch(() => { if (S.talk === T) talkTimer = setTimeout(pollTalk, 2000); });
+  if (!T) return;
+  getJson('/api/desk-agents?canvas=' + encodeURIComponent(T.canvas))
+    .then((j) => {
+      if (S.talk !== T) return;
+      const placed = !!(T.data && T.data.agent) !== !!j.agent;
+      T.data = j; renderTalk();
+      if (placed) loadPlaced();
+      talkTimer = setTimeout(loadTalk, j.agent && j.agent.state !== 'idle' ? 800 : 2500);
+    })
+    .catch((e) => { if (S.talk === T) { if (!T.data) T.data = { canvas: T.canvas, note: 'Could not read the desk: ' + e.message }; renderTalk(); talkTimer = setTimeout(loadTalk, 4000); } });
 }
 
-function talkSend(form) {
+function talkPost(path, body, done) {
   const T = S.talk;
   if (!T || T.busy) return;
-  const text = String(new FormData(form).get('text') || '');
-  const convs = (T.data && T.data.conversations) || [];
-  const pick = T.pick || (convs[0] ? convs[0].platform + ':' + convs[0].id : '');
-  const at = pick.indexOf(':'), platform = pick.slice(0, at), conversation = pick.slice(at + 1);
-  if (!text.trim() || !conversation) return;
-  T.busy = true; T.said = ''; T.draft = text;
-  document.activeElement && document.activeElement.blur && document.activeElement.blur();
-  post('/api/talk', { canvas: T.canvas, platform, conversation, text })
-    .then((j) => { if (j && j.id) { T.run = j; T.draft = ''; pollTalk(); } else T.said = (j && j.detail) || 'The task was not given.'; })
+  T.busy = true; T.said = '';
+  return post('/api/desk-agents/' + path, { canvas: T.canvas, ...body })
+    .then((j) => { if (j && j.canvas) { T.data = j; if (done) done(); } else T.said = (j && j.detail) || 'AutomatU did not take that.'; })
     .catch(() => { T.said = 'AutomatU could not be reached.'; })
-    .then(() => { T.busy = false; renderTalk(); });
+    .then(() => { T.busy = false; renderTalk(); loadTalk(); });
 }
 
 function talkClick(e) {
   const T = S.talk;
   if (e.target.closest('[data-talk-close]')) return closeTalk();
-  const pk = e.target.closest('[data-talk-pick]');
-  if (pk) { T.pick = pk.dataset.talkPick; return renderTalk(); }
-  const an = e.target.closest('[data-talk-answer]');
-  if (an && T.run) { an.disabled = true; return post('/api/talk/run/' + encodeURIComponent(T.run.id) + '/answer', { option: an.dataset.talkAnswer || null }).then(pollTalk, pollTalk); }
-  if (e.target.closest('[data-talk-stop]') && T.run) return post('/api/talk/run/' + encodeURIComponent(T.run.id) + '/stop', {}).then(pollTalk, pollTalk);
-  if (e.target.closest('[data-talk-new]') && T.run) { T.dismissed = T.run.id; return renderTalk(); }
+  const pk = e.target.closest('[data-agent-pick]');
+  if (pk) { T.agent = pk.dataset.agentPick; T.model = ''; return renderTalk(); }
+  const an = e.target.closest('[data-agent-answer]');
+  if (an) return talkPost('answer', { ask: Number(an.dataset.agentAnswer), allow: an.dataset.allow === '1' });
+  const tb = e.target.closest('[data-agent-takeback]');
+  if (tb) return talkPost('take-back', { item: Number(tb.dataset.agentTakeback) });
+  if (e.target.closest('[data-agent-stop]')) return talkPost('stop', {});
+  if (e.target.closest('[data-agent-detach]')) {
+    const ag = T.data && T.data.agent;
+    if (!window.confirm(`Detach ${ag ? AGENT_NAMES[ag.agent] || ag.agent : 'the agent'} from the ${T.data.desk.name} desk? It stops, and so does whatever it started, such as a site it serves. The chat is kept.`)) return;
+    return talkPost('detach', {}, loadPlaced);
+  }
 }
 
 document.addEventListener('submit', (e) => {
-  const f = e.target.closest('[data-talkform]');
-  if (!f) return;
+  const T = S.talk;
+  const choose = e.target.closest('[data-agentform]'), send = e.target.closest('[data-agentsend]');
+  if (!T || (!choose && !send)) return;
   e.preventDefault();
-  talkSend(f);
+  const f = new FormData(e.target);
+  if (choose) return talkPost('choose', { agent: String(f.get('agent') || T.agent), model: String(f.get('model') || ''), folder: String(f.get('folder') || '').trim() }, loadPlaced);
+  const text = String(f.get('text') || '');
+  if (!text.trim()) return;
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  talkPost('send', { text }, () => { T.draft = ''; });
 });
-document.addEventListener('input', (e) => { if (S.talk && e.target.id === 'tktext') S.talk.draft = e.target.value; });
+document.addEventListener('input', (e) => {
+  if (!S.talk) return;
+  if (e.target.id === 'tktext') S.talk.draft = e.target.value;
+  if (e.target.id === 'tkfolder') S.talk.folder = e.target.value;
+  if (e.target.id === 'tkmodel') S.talk.model = e.target.value;
+});
+document.addEventListener('change', (e) => { if (S.talk && e.target.id === 'tkmodel') S.talk.model = e.target.value; });
+
+/* The canvases whose desk has an agent of AutomatU's: their buttons carry the dot. */
+function loadPlaced() {
+  return getJson('/api/desk-agents/cards').then((j) => {
+    const now = (j.agents || []).map((a) => a.canvas).sort().join('|');
+    const was = (S.placed || []).slice().sort().join('|');
+    S.placed = (j.agents || []).map((a) => a.canvas);
+    if (now !== was && S.tab === 'main') renderMain();
+  }).catch(() => {});
+}
+const placedOn = (canvas) => (S.placed || []).includes(canvas);
 
 /* The desk whose Main canvas a canvas is, as Knowledge Desk last said. */
 const deskOf = (canvas) => ((S.kd && S.kd.desks) || []).find((d) => d.main_canvas === canvas) || null;
@@ -1912,7 +1933,7 @@ async function start() {
   if (inKd('flows')) openWorkflows();
   loadNotices();
   loadDesks();
-  loadKd();
+  loadKd(); loadPlaced();
   if (inKd('monitoring')) loadMon();
   if (S.pendingAsk) { askNow(S.pendingAsk.q, S.pendingAsk.only); S.pendingAsk = null; }
   setInterval(() => {
