@@ -375,12 +375,15 @@ def _desk_agent(canvas: str):
 def desk_agent_view(canvas: str) -> dict:
     """What the Agents button on a canvas's hex opens: the agent placed at the
     desk whose Main canvas it is - or the choice of one - and the desk's chat."""
-    from .desk_agents import messages, models, said_by
+    from .desk_agents import ELSEWHERE, MANAGER, messages, models, said_by
+    if not MANAGER.holds():
+        return {"canvas": canvas, "note": ELSEWHERE}
     try:
         desk, m = _desk_agent(canvas)
     except HTTPException:
         return {"canvas": canvas, "note": "This canvas is no desk's Main canvas. Create a desk for it in the "
                                           "Knowledge Desk tab, and an agent can be placed at it here."}
+    m.refresh(desk)
     from .binding import all_bindings
     repo = next((b["repo"] for b in all_bindings() if b["canvas"] == canvas), "")
     names = {s: a.desk["name"] for s, a in m.agents.items()} | {desk["slug"]: desk["name"]}
@@ -478,21 +481,38 @@ app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
 
 
 def _restore_agents() -> None:
-    """The agents placed at desks before AutomatU last stopped, placed again."""
+    """The agents placed at desks before AutomatU last stopped, placed again -
+    by the one AutomatU that runs them (t-9ac895056e)."""
     import asyncio
+    import threading
     try:
-        from .desk_agents import MANAGER
+        from .desk_agents import MANAGER, models
         from .knowledge import overview
-        try:
-            desks = asyncio.run(overview()).get("desks") or []
-        except Exception:
-            desks = []
-        import threading
-        from .desk_agents import models
+
+        def read() -> list[dict] | None:
+            try:
+                ds = asyncio.run(overview()).get("desks") or []
+            except Exception:
+                return None
+            return [{"slug": d.get("slug") or "", "name": d.get("name") or "", "role": d.get("role") or "",
+                     "main_canvas": d.get("main_canvas") or "", "attached": list(d.get("attached") or []),
+                     "owner": d.get("owner") or ""} for d in ds]
         threading.Thread(target=models, name="agy-models", daemon=True).start()   # read once, before anyone asks
-        MANAGER.restore([{"slug": d.get("slug") or "", "name": d.get("name") or "", "role": d.get("role") or "",
-                          "main_canvas": d.get("main_canvas") or "", "attached": list(d.get("attached") or []),
-                          "owner": d.get("owner") or ""} for d in desks])
+        desks = read()
+        MANAGER.restore(desks or [])
+        if desks is None and MANAGER.agents:
+            # Knowledge Desk not answering yet: the agents were placed from
+            # AutomatU's record alone; their roles follow once it answers.
+            def later():
+                import time
+                for _ in range(120):
+                    time.sleep(15)
+                    got = read()
+                    if got is not None:
+                        for d in got:
+                            MANAGER.refresh(d)
+                        return
+            threading.Thread(target=later, name="desk-roles", daemon=True).start()
     except Exception as e:          # the store or Work Desks missing: no agents, said on their hexes
         print(f"desk agents not restored: {type(e).__name__}: {e}")
 

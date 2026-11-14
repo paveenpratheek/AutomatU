@@ -379,6 +379,26 @@ class Manager:
         self.loop: asyncio.AbstractEventLoop | None = None
         self._started = threading.Lock()
         self._apps: dict[str, object] = {}
+        self._hold = None            # the connection that holds the desk agents' lock, while this AutomatU runs them
+
+    def holds(self) -> bool:
+        """Whether this AutomatU runs the desk agents. Only one AutomatU on a
+        store may: two would each start the same desk's agent and write the
+        same chat. The first to ask takes a Postgres advisory lock on a
+        connection of its own, held as long as it runs, so a second AutomatU -
+        a test server beside the user's, say - runs none, and the lock goes
+        when the first stops, however it stops (t-9ac895056e)."""
+        with self._started:
+            if self._hold is not None and not self._hold.closed:
+                return True
+            import psycopg
+            from .store import DB_URL
+            conn = psycopg.connect(os.environ.get("AUTOMATU_DB_URL", DB_URL), autocommit=True, connect_timeout=5)
+            if conn.execute("SELECT pg_try_advisory_lock(hashtext('automatu-desk-agents'))").fetchone()[0]:
+                self._hold = conn
+                return True
+            conn.close()
+            return False
 
     def _ensure(self) -> asyncio.AbstractEventLoop:
         with self._started:
@@ -401,7 +421,10 @@ class Manager:
     def restore(self, desks: list[dict]) -> None:
         """The agents the user chose before AutomatU last stopped: placed again,
         their processes started at their next message. What was running or
-        queued when it stopped is marked so."""
+        queued when it stopped is marked so. Only the AutomatU that runs the desk
+        agents does this; another touches nothing."""
+        if not self.holds():
+            return
         db().execute("UPDATE desk_message SET state='stopped' WHERE kind='message' AND state IN ('queued','running')")
         db().execute("UPDATE desk_message SET state='not answered' WHERE kind='ask' AND state='waiting'")
         by = {d["slug"]: d for d in desks}
@@ -418,6 +441,24 @@ class Manager:
     def get(self, slug: str) -> DeskAgent | None:
         return self.agents.get(slug)
 
+    def refresh(self, desk: dict) -> None:
+        """The desk as Knowledge Desk says now: an agent placed while it was not
+        answering - with only the desk's name and Main canvas - is given its
+        role, canvases and owner name, for its next session, its guard and its
+        card (t-35279017ea)."""
+        a = self.get(desk.get("slug") or "")
+        keys = ("name", "role", "main_canvas", "attached", "owner")
+        if a is None or not desk.get("name") or all(a.desk.get(k) == desk.get(k) for k in keys):
+            return
+        a.desk = {**a.desk, **{k: desk.get(k) for k in keys}}
+        o = a.occupant
+        o.instructions = a.instructions()
+        o.policy.canvases = [a.desk["main_canvas"]]
+        o.policy.owner = a.desk.get("owner") or None
+        if (o.desk_dir / ".agents").exists() or (o.desk_dir / ".claude").exists():
+            o.install_guard()          # a running agent's guard reads its lists afresh at each call
+        self._apps.pop(a.slug, None)
+
     def choose(self, desk: dict, agent: str, model: str, folder: str) -> dict:
         if agent not in AGENTS:
             raise ValueError("choose agy or claude")
@@ -429,6 +470,8 @@ class Manager:
         f = Path(folder or "")
         if not folder or not f.is_dir():
             raise ValueError("give the folder where the agent does the work: one that exists on this PC")
+        if not self.holds():
+            raise ValueError(ELSEWHERE)
         slug = desk["slug"]
         if self.get(slug) is not None:
             raise ValueError(f"an agent is already at the {desk['name']} desk: detach it first")
@@ -531,6 +574,8 @@ class Manager:
 
 
 MANAGER = Manager()
+ELSEWHERE = ("Another AutomatU on this PC runs the desk agents, so this one runs none: open that one, or stop it "
+             "and start this one again.")
 
 
 # ------------------------------------------------------------------ the A2A side

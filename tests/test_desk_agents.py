@@ -217,3 +217,39 @@ def test_agy_reads_its_own_desk_servers_tool_descriptions_without_asking(env):
     assert str((mcp / "knowledgedesk").resolve()) in reads and str((mcp / "desks").resolve()) in reads
     assert str(mcp.resolve()) not in reads, "only the desk's own servers, not every server's"
     assert str(work.resolve()) in reads
+
+
+def test_only_one_automatu_on_a_store_runs_the_desk_agents(env, store):
+    from automatu.desk_agents import ELSEWHERE, MANAGER, Manager, add
+    c, work = env
+    choose(c, work)
+    assert MANAGER.holds()
+    other = Manager()                      # a second AutomatU on the same store
+    assert not other.holds()
+    mid = add("portfolio-t", "user", "message", "SAY waiting", "queued")
+    other.restore(DESKS)
+    assert store.db().execute("SELECT state FROM desk_message WHERE id=%s", (mid,)).fetchone()[0] == "queued", \
+        "a second AutomatU changes no chat"
+    assert other.agents == {}
+    with pytest.raises(ValueError, match="Another AutomatU on this PC runs the desk agents"):
+        other.choose(DESKS[1], "agy", "gemini-3.8-flash-low", str(work))
+    assert ELSEWHERE.startswith("Another AutomatU")
+    store.db().execute("DELETE FROM desk_message WHERE id=%s", (mid,))
+
+
+def test_an_agent_placed_without_knowledge_desk_takes_the_desks_role_once_it_answers(env):
+    from automatu.desk_agents import MANAGER, chosen
+    c, work = env
+    choose(c, work)
+    a = MANAGER.get("portfolio-t")
+    bare = {"slug": "portfolio-t", "name": "Portfolio T", "main_canvas": "PortFolio T"}
+    a.desk = dict(bare)                    # as placed from AutomatU's record alone
+    a.occupant.instructions = a.instructions()
+    assert "not written yet" in a.occupant.instructions
+    MANAGER.a2a_app("portfolio-t")
+    MANAGER.refresh(DESKS[0])
+    assert a.desk["role"] == "Keeps the Portfolio T work" and a.desk["owner"] == "portfolio-t"
+    assert "Keeps the Portfolio T work" in a.occupant.instructions
+    assert a.occupant.policy.owner == "portfolio-t" and a.occupant.policy.canvases == ["PortFolio T"]
+    assert "portfolio-t" not in MANAGER._apps, "its card is made again with the role"
+    assert chosen("portfolio-t")["agent"] == "agy"
