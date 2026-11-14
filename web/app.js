@@ -19,7 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
-import { AGENT_NAMES, agentsBoxHtml, agentsHtml as deskAgentHtml, placeTalk } from './agents.js';
+import { AGENT_NAMES, agentsBoxHtml, agentsHtml as deskAgentHtml } from './agents.js';
 import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
@@ -1242,8 +1242,7 @@ let talkTimer = 0;
 
 function openTalk(canvas, btn) {
   if (S.talk && S.talk.canvas === canvas) return closeTalk();
-  const r = btn.getBoundingClientRect();
-  S.talk = { canvas, btn: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, data: null, agent: 'agy', model: '', folder: undefined, draft: '', said: '', busy: false };
+  S.talk = { canvas, data: null, agent: 'agy', model: '', folder: undefined, draft: '', said: '', busy: false };
   renderTalk();
   loadTalk();
 }
@@ -1258,18 +1257,11 @@ function renderTalk() {
   const el = $('talk'), T = S.talk;
   el.hidden = !T;
   if (!T) { setHtml(el, ''); return; }
-  /* Landscape on a wide screen: the chat beside a panel of what the agent is
-     doing; a narrow screen keeps the tall window. It opens below its button or
-     above it, never over it, never off the screen, and only its middle scrolls. */
+  /* A pop-up in the middle of the screen, the same for every hex: the chat
+     beside a panel of what the agent is doing on a wide screen, the chat alone
+     on a narrow one. Its backdrop, Esc or x closes it. */
   T.wide = innerWidth >= 760;
   el.classList.toggle('wide', T.wide);
-  const at = placeTalk(T.btn, innerWidth, innerHeight, T.wide);
-  el.style.left = at.left + 'px';
-  el.style.width = at.width + 'px';
-  el.style.top = at.top !== undefined ? at.top + 'px' : '';
-  el.style.bottom = at.bottom !== undefined ? at.bottom + 'px' : '';
-  el.style.height = T.wide ? at.height + 'px' : '';
-  el.style.maxHeight = T.wide ? '' : at.height + 'px';
   if (typingIn('#talk')) return;
   /* Redrawn as the agent works: what is being read stays where it is, and the
      newest lines are followed only by someone already at the bottom. */
@@ -1311,7 +1303,7 @@ function talkPost(path, body, done) {
 
 function talkClick(e) {
   const T = S.talk;
-  if (e.target.closest('[data-talk-close]')) return closeTalk();
+  if (e.target === $('talk') || e.target.closest('[data-talk-close]')) return closeTalk();   // the backdrop, or x
   const pk = e.target.closest('[data-agent-pick]');
   if (pk) { T.agent = pk.dataset.agentPick; T.model = ''; return renderTalk(); }
   const an = e.target.closest('[data-agent-answer]');
