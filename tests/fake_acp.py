@@ -1,5 +1,5 @@
-"""A stand-in for the agent a hex talks to: an ACP agent over stdio that loads
-any conversation it is given and spends nothing of the user's allowance.
+"""A stand-in for the agent placed at a desk: an ACP agent over stdio that opens
+or loads any session it is given and spends nothing of the user's allowance.
 
 Scripted by the task's text, one command per line:
 
@@ -7,7 +7,8 @@ Scripted by the task's text, one command per line:
   TOOL <title>     report a tool call starting and finishing
   ASK <title>      ask permission (allow, always, deny); say "allowed <option>"
                    or "refused"
-  WHERE            say the folder and the conversation it was loaded with
+  WHERE            say the folder and the session it was opened or loaded with
+  ECHO             say the whole prompt it was given
   SLOW <seconds>   wait, so a task can be stopped
 """
 from __future__ import annotations
@@ -17,7 +18,7 @@ import uuid
 
 from acp import PROTOCOL_VERSION, run_agent
 from acp.schema import (AgentCapabilities, AgentMessageChunk, AllowedOutcome, Implementation, InitializeResponse,
-                        LoadSessionResponse, PermissionOption, PromptResponse, TextContentBlock, ToolCallProgress,
+                        LoadSessionResponse, NewSessionResponse, PermissionOption, PromptResponse, TextContentBlock, ToolCallProgress,
                         ToolCallStart, ToolCallUpdate)
 
 
@@ -33,6 +34,11 @@ class Fake:
     async def initialize(self, protocol_version, client_capabilities=None, client_info=None, **kw):
         return InitializeResponse(protocol_version=PROTOCOL_VERSION, agent_capabilities=AgentCapabilities(load_session=True),
                                   agent_info=Implementation(name="Fake agent", version="0.0.1"))
+
+    async def new_session(self, cwd, mcp_servers=None, additional_directories=None, **kw):
+        sid = "s-" + uuid.uuid4().hex[:8]
+        self.loaded[sid] = cwd
+        return NewSessionResponse(session_id=sid)
 
     async def load_session(self, cwd, session_id, mcp_servers=None, additional_directories=None, **kw):
         self.loaded[session_id] = cwd
@@ -68,6 +74,8 @@ class Fake:
                     await self.say(session_id, "allowed " + r.outcome.option_id)
                 else:
                     await self.say(session_id, "refused")
+            elif cmd == "ECHO":
+                await self.say(session_id, text)
             elif cmd == "WHERE":
                 await self.say(session_id, f"in {self.loaded.get(session_id)} as {session_id}")
             elif cmd == "SLOW":

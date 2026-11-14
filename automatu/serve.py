@@ -2,7 +2,8 @@
 snapshots as JSON. On 127.0.0.1 only. Its API only reads (t-9b8317f00e), but for
 what the user does on AutomatU's own page, and only from it: an Interrupt passed
 on to a desk (t-5bb672b723), the canvases the user adds and removes (t-4fb5a8ff46), and the desks' workflows and grants the user
-arranges, kept in AutomatU's store once the desk accepts them (t-d966145acd); with the
+arranges, kept in AutomatU's store once the desk accepts them (t-d966145acd); and the agent the user places at a
+desk, with its chat (t-e02af0ac56), each also an A2A agent under /a2a/<slug>; with the
 watcher on it also makes new maps as the work happens (t-3e56993cc4). The
 notices, agents and timeline answers are typed, and their schema is served at
 /api/openapi.json for the page and other agents (t-e7dd1752e3).
@@ -16,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
 from .models import (AgentsAnswer, ArrangementSave, CanvasAsk, CanvasChange, KdDeskAnswer, KdDeskChange, KdOverview, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
-                     InterruptAsk, NoticesAnswer, SaveAnswer, TalkAnswer, TalkRun, TalkStart, TalkView, Timeline)
+                     InterruptAsk, NoticesAnswer, SaveAnswer, Timeline, DeskAgentAnswer, DeskAgentChoose, DeskAgentItem,
+                     DeskAgentSend, DeskAgentView)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -327,118 +329,138 @@ def arrangements_current(desk: str) -> dict:
     return current(desk)
 
 
-# ------------------------------------------------------------ talking to the agent from its hex (box 30, t-275ce407f2)
+# ------------------------------------------------------------ agents in AutomatU, one at each desk (box 30, t-e02af0ac56)
 
-def _talk_place(canvas: str) -> tuple[str | None, tuple[str, ...]]:
-    """The repository a canvas plans, and every bound repository (a conversation
-    is placed by the folders it worked in)."""
-    from .binding import all_bindings
-    bs = all_bindings()
-    return next((b["repo"] for b in bs if b["canvas"] == canvas), None), tuple(b["repo"] for b in bs)
+_desks_read: tuple[float, dict] | None = None
 
 
-@app.get("/api/talk", response_model=TalkView)
-def talk_view(canvas: str) -> dict:
-    """The agents box on a canvas's hex: who answers for it, their last five
-    conversations on the project in the Claude app or Antigravity, and the task
-    running or last run there."""
-    from . import talk
-    from .notices import agents
-    repo, repos = _talk_place(canvas)
-    run = talk.latest(canvas)
-    out = {"canvas": canvas, "repo": repo, "run": run.view() if run else None}
-    desk = _talk_desk(canvas)
-    if desk:
-        # A desk's Main canvas: the agents sitting at it, and the conversations that sat there.
-        out["desk"] = desk["name"]
-        out["sitting"] = [{"agent": s.get("agent") or "an agent", "client": s.get("client") or "", "since": s.get("since"),
-                           "away": bool(s.get("away"))} for s in desk.get("sitting") or []]
-        out["agents"] = [s["agent"] for s in out["sitting"]] or [desk.get("owner") or desk["name"]]
-        out["conversations"] = talk.desk_conversations({desk["name"], desk.get("slug") or ""}, repos)
-    if repo:
-        out["agents"] = list(dict.fromkeys(out.get("agents", []) + [a["agent"] for a in agents() if any(r["repo"] == repo for r in a["repos"])]))
-        mine = talk.conversations(repo, repos)
-        out["conversations"] = sorted({c["platform"] + c["id"]: c for c in out.get("conversations", []) + mine}.values(),
-                                      key=talk._sort_key, reverse=True)[:talk.LIMIT]
-    if not repo and not desk:
-        out["note"] = "This canvas plans no repository and is no desk's Main canvas, so there is no agent to find conversations for."
-    return out
-
-
-def _talk_desk(canvas: str) -> dict | None:
+def _desk_of(canvas: str) -> dict | None:
     """The desk whose Main canvas this is, as Knowledge Desk serves it - or
-    none, when it is not one or Knowledge Desk cannot say."""
+    none, when it is not one or Knowledge Desk cannot say. What Knowledge Desk
+    said is kept a few seconds, as the chat is read again every moment."""
     import asyncio
+    import time
     from .knowledge import overview
+    global _desks_read
+    if _desks_read and time.monotonic() - _desks_read[0] < 5:
+        ov = _desks_read[1]
+    else:
+        try:
+            ov = asyncio.run(overview())
+        except Exception:
+            return None
+        _desks_read = (time.monotonic(), ov)
+    d = next((d for d in ov.get("desks") or [] if d.get("main_canvas") == canvas), None)
+    return None if d is None else {"slug": d.get("slug") or "", "name": d.get("name") or "", "role": d.get("role") or "",
+                                   "main_canvas": canvas, "attached": list(d.get("attached") or []),
+                                   "owner": d.get("owner") or ""}
+
+
+def _desk_agent(canvas: str):
+    """The desk of this canvas, and AutomatU's agents; the desk as it was when
+    its agent was chosen, when Knowledge Desk cannot say now."""
+    from .desk_agents import MANAGER, chosen
+    from .store import db
+    desk = _desk_of(canvas)
+    if desk is None:
+        r = db().execute("SELECT desk FROM desk_agent WHERE canvas=%s AND detached_at IS NULL", (canvas,)).fetchone()
+        rec = chosen(r[0]) if r else None
+        if rec is None:
+            raise HTTPException(404, "this canvas is no desk's Main canvas")
+        desk = {"slug": rec["desk"], "name": rec["name"], "main_canvas": canvas}
+    return desk, MANAGER
+
+
+@app.get("/api/desk-agents", response_model=DeskAgentView)
+def desk_agent_view(canvas: str) -> dict:
+    """What the Agents button on a canvas's hex opens: the agent placed at the
+    desk whose Main canvas it is - or the choice of one - and the desk's chat."""
+    from .desk_agents import messages, models, said_by
     try:
-        ov = asyncio.run(overview())
-    except Exception:
-        return None
-    return next((d for d in ov.get("desks") or [] if d.get("main_canvas") == canvas), None)
+        desk, m = _desk_agent(canvas)
+    except HTTPException:
+        return {"canvas": canvas, "note": "This canvas is no desk's Main canvas. Create a desk for it in the "
+                                          "Knowledge Desk tab, and an agent can be placed at it here."}
+    from .binding import all_bindings
+    repo = next((b["repo"] for b in all_bindings() if b["canvas"] == canvas), "")
+    names = {s: a.desk["name"] for s, a in m.agents.items()} | {desk["slug"]: desk["name"]}
+    msgs = [{**x, "by": said_by(x["who"], names)} for x in messages(desk["slug"])]
+    return {"canvas": canvas, "desk": desk, "agent": m.now(desk["slug"]), "messages": msgs,
+            "models": models(), "folder": repo}
 
 
-def _talk_known(canvas: str, platform: str, conversation: str) -> dict | None:
-    """One of the agent's conversations on this canvas - by its project or its desk - or none."""
-    view = talk_view(canvas)
-    from . import talk
-    found = view.get("conversations") or []
-    if not any(c["id"] == conversation for c in found):          # older than the five shown
-        repo, repos = _talk_place(canvas)
-        desk = _talk_desk(canvas)
-        found = (talk.conversations(repo, repos, limit=50) if repo else []) + \
-                (talk.desk_conversations({desk["name"], desk.get("slug") or ""}, repos, limit=50) if desk else [])
-    return next((c for c in found if c["id"] == conversation and c["platform"] == platform), None)
-
-
-@app.post("/api/talk", response_model=TalkRun)
-def talk_start(ask: TalkStart, request: Request) -> dict:
-    """The user's task, passed on to the agent in a copy of the conversation
-    picked - only from AutomatU's own page, as the Interrupt is."""
-    _own_page(request, "give an agent a task")
-    from . import talk
-    conv = _talk_known(ask.canvas, ask.platform, ask.conversation)
-    if not conv:
-        raise HTTPException(400, "that is not one of the agent's conversations on this canvas")
-    repo, _ = _talk_place(ask.canvas)
+def _taken(fn, *args):
     try:
-        # where the agent works: the project's folder, else the conversation's own
-        return talk.start(ask.canvas, repo or conv.get("cwd") or "", ask.platform, ask.conversation, ask.text).view()
-    except (ValueError, RuntimeError) as e:
+        return fn(*args)
+    except ValueError as e:
         raise HTTPException(409, str(e))
 
 
-@app.get("/api/talk/run/{talk_id}", response_model=TalkRun)
-def talk_run(talk_id: str) -> dict:
-    from . import talk
-    t = talk.get(talk_id)
-    if not t:
-        raise HTTPException(404, "no such task")
-    return t.view()
+@app.post("/api/desk-agents/choose", response_model=DeskAgentView)
+def desk_agent_choose(ask: DeskAgentChoose, request: Request) -> dict:
+    """The user places an agent at the desk: agy or Claude, its model, and the
+    folder it works in - only from AutomatU's own page."""
+    _own_page(request, "place an agent at a desk")
+    desk = _desk_of(ask.canvas)
+    if desk is None:
+        raise HTTPException(409, "Knowledge Desk does not say this canvas is a desk's Main canvas")
+    from .desk_agents import MANAGER
+    _taken(MANAGER.choose, desk, ask.agent, ask.model, ask.folder)
+    return desk_agent_view(ask.canvas)
 
 
-@app.post("/api/talk/run/{talk_id}/answer", response_model=TalkRun)
-def talk_answer(talk_id: str, ans: TalkAnswer, request: Request) -> dict:
-    """The user's answer to a permission the agent asked for: an option it
-    offered, or none for no."""
+@app.post("/api/desk-agents/send", response_model=DeskAgentView)
+def desk_agent_send(ask: DeskAgentSend, request: Request) -> dict:
+    """The user's message to the desk's agent: worked on now, or queued."""
+    _own_page(request, "give an agent work")
+    desk, m = _desk_agent(ask.canvas)
+    _taken(m.give, desk["slug"], "user", ask.text)
+    return desk_agent_view(ask.canvas)
+
+
+@app.post("/api/desk-agents/answer", response_model=DeskAgentView)
+def desk_agent_answer(ask: DeskAgentAnswer, request: Request) -> dict:
+    """The user's yes or no to a permission the agent asked for in the chat."""
     _own_page(request, "answer an agent")
-    from . import talk
-    t = talk.get(talk_id)
-    if not t:
-        raise HTTPException(404, "no such task")
-    if not t.answer(ans.option):
-        raise HTTPException(409, "the agent is not waiting on an answer")
-    return t.view()
+    desk, m = _desk_agent(ask.canvas)
+    if not m.answer(desk["slug"], ask.ask, ask.allow):
+        raise HTTPException(409, "the agent is not waiting on that")
+    return desk_agent_view(ask.canvas)
 
 
-@app.post("/api/talk/run/{talk_id}/stop", response_model=TalkRun)
-def talk_stop(talk_id: str, request: Request) -> dict:
+@app.post("/api/desk-agents/take-back", response_model=DeskAgentView)
+def desk_agent_take_back(ask: DeskAgentItem, request: Request) -> dict:
+    _own_page(request, "take a message back")
+    desk, m = _desk_agent(ask.canvas)
+    if ask.item is None or not m.take_back(desk["slug"], ask.item):
+        raise HTTPException(409, "that message is not waiting in the queue")
+    return desk_agent_view(ask.canvas)
+
+
+@app.post("/api/desk-agents/stop", response_model=DeskAgentView)
+def desk_agent_stop(ask: DeskAgentItem, request: Request) -> dict:
     _own_page(request, "stop an agent")
-    from . import talk
-    t = talk.get(talk_id)
-    if not t:
-        raise HTTPException(404, "no such task")
-    t.stop()
-    return t.view()
+    desk, m = _desk_agent(ask.canvas)
+    m.stop(desk["slug"])
+    return desk_agent_view(ask.canvas)
+
+
+@app.post("/api/desk-agents/detach", response_model=DeskAgentView)
+def desk_agent_detach(ask: DeskAgentItem, request: Request) -> dict:
+    """The user takes the agent off the desk: its process goes, with what it started."""
+    _own_page(request, "detach an agent")
+    desk, m = _desk_agent(ask.canvas)
+    if not m.detach(desk["slug"]):
+        raise HTTPException(409, "no agent is at this desk")
+    return desk_agent_view(ask.canvas)
+
+
+@app.get("/api/desk-agents/cards")
+def desk_agent_cards() -> dict:
+    """The agents placed at desks, for Work Desks to list beside its own: each
+    an A2A agent at /a2a/<slug>, its card at /a2a/<slug>/.well-known/agent-card.json."""
+    from .desk_agents import MANAGER
+    return {"agents": MANAGER.cards()}
 
 
 @app.middleware("http")
@@ -449,18 +471,30 @@ async def no_cache(request, call_next):
     return res
 
 
+from .desk_agents import A2AMount  # noqa: E402
+
+app.mount("/a2a", A2AMount(), name="a2a")
 app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
 
 
-def _warm_talk() -> None:
+def _restore_agents() -> None:
+    """The agents placed at desks before AutomatU last stopped, placed again."""
+    import asyncio
     try:
-        from . import talk
-        from .binding import all_bindings
-        repos = tuple(b["repo"] for b in all_bindings())
-        for r in repos:
-            talk.conversations(r, repos)
-    except Exception:          # a cold first click is slower, nothing worse
-        pass
+        from .desk_agents import MANAGER
+        from .knowledge import overview
+        try:
+            desks = asyncio.run(overview()).get("desks") or []
+        except Exception:
+            desks = []
+        import threading
+        from .desk_agents import models
+        threading.Thread(target=models, name="agy-models", daemon=True).start()   # read once, before anyone asks
+        MANAGER.restore([{"slug": d.get("slug") or "", "name": d.get("name") or "", "role": d.get("role") or "",
+                          "main_canvas": d.get("main_canvas") or "", "attached": list(d.get("attached") or []),
+                          "owner": d.get("owner") or ""} for d in desks])
+    except Exception as e:          # the store or Work Desks missing: no agents, said on their hexes
+        print(f"desk agents not restored: {type(e).__name__}: {e}")
 
 
 def serve(port: int = 7790, watch: bool = True, every: float = 4.0) -> None:
@@ -471,12 +505,13 @@ def serve(port: int = 7790, watch: bool = True, every: float = 4.0) -> None:
         from .watch import Watcher
         watcher = Watcher(every=every)
         watcher.start()
-    # The first look through the apps' conversations reads every transcript once
-    # - tens of seconds - so it is done in the background before anyone asks.
-    import threading
-    threading.Thread(target=_warm_talk, name="talk-warm", daemon=True).start()
+    from . import desk_agents
+    desk_agents.PORT = port
+    _restore_agents()
     try:
         uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
     finally:
+        # Closing AutomatU takes every desk's agent off, with what it started (t-232d5f3a9a).
+        desk_agents.MANAGER.close_all()
         if watcher:
             watcher.stop()
