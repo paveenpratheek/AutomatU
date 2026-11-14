@@ -1258,24 +1258,39 @@ function renderTalk() {
   const el = $('talk'), T = S.talk;
   el.hidden = !T;
   if (!T) { setHtml(el, ''); return; }
-  const w = Math.min(420, innerWidth - 24);
-  el.style.width = w + 'px';
-  el.style.left = Math.max(12, Math.min(T.x, innerWidth - w - 12)) + 'px';
-  /* It never runs off the screen: opened low, it moves up to keep room; its
-     height is what is left below where it opens, and only its middle scrolls. */
-  const top = Math.max(12, Math.min(T.y, innerHeight - 480));
-  el.style.top = top + 'px';
-  el.style.maxHeight = (innerHeight - top - 12) + 'px';
+  /* Landscape on a wide screen: the chat beside a panel of what the agent is
+     doing; a narrow screen keeps the tall window. Either way it never runs off
+     the screen, and only its middle scrolls. */
+  T.wide = innerWidth >= 760;
+  el.classList.toggle('wide', T.wide);
+  if (T.wide) {
+    const w = Math.min(900, innerWidth - 24), h = Math.min(560, innerHeight - 24);
+    el.style.width = w + 'px';
+    el.style.left = Math.max(12, Math.min(T.x - 120, innerWidth - w - 12)) + 'px';
+    el.style.top = Math.max(12, Math.min(T.y, innerHeight - h - 12)) + 'px';
+    el.style.height = h + 'px';
+    el.style.maxHeight = '';
+  } else {
+    const w = Math.min(420, innerWidth - 24);
+    el.style.width = w + 'px';
+    el.style.left = Math.max(12, Math.min(T.x, innerWidth - w - 12)) + 'px';
+    const top = Math.max(12, Math.min(T.y, innerHeight - 480));
+    el.style.top = top + 'px';
+    el.style.height = '';
+    el.style.maxHeight = (innerHeight - top - 12) + 'px';
+  }
   if (typingIn('#talk')) return;
   /* Redrawn as the agent works: what is being read stays where it is, and the
      newest lines are followed only by someone already at the bottom. */
-  const body = el.querySelector('.tk-body');
+  const body = el.querySelector('.tk-body'), sidePane = el.querySelector('.tk-side'), sideTop = sidePane ? sidePane.scrollTop : 0;
   const keep = body ? { top: body.scrollTop, end: body.scrollTop + body.clientHeight >= body.scrollHeight - 8 } : null;
   const open = [...el.querySelectorAll('details.tk-d[open]')].map((d) => d.closest('[data-line]') && d.closest('[data-line]').dataset.line);
   setHtml(el, deskAgentHtml(T));
   el.querySelectorAll('[data-line]').forEach((n) => { if (open.includes(n.dataset.line)) { const d = n.querySelector('details.tk-d'); if (d) d.open = true; } });
   const b2 = el.querySelector('.tk-body');
   if (b2) b2.scrollTop = !keep || keep.end ? b2.scrollHeight : keep.top;
+  const s2 = el.querySelector('.tk-side');
+  if (s2) s2.scrollTop = sideTop;
 }
 
 function loadTalk() {
