@@ -65,8 +65,17 @@ def _with_pictures(canvas: str, totems: list[dict]) -> None:
     except (OSError, ValueError, RuntimeError):
         return
 
+    # A file written by an agent has no id in its script, only its name - and a
+    # canvas holds one file per name in sources/ (NoteX refuses a second one).
+    by_name = {f["name"]: fid for fid, f in files.items() if f["name"]}
+
     def walk(node: dict) -> None:
         for it in node.get("items", []):
+            if it.get("type") == "file" and not it.get("id") and it.get("file") in by_name:
+                it["id"] = by_name[it["file"]]
+                it["image"] = files[it["id"]]["image"]
+                if it["image"]:
+                    it["label"] = "Image"
             f = files.get(it.get("id", "")) if it.get("image") else None
             if f and f["image"]:
                 it["src"] = "/api/canvas-image?canvas=" + quote(canvas, safe="") + "&id=" + quote(it["id"], safe="")

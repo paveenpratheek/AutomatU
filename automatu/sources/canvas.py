@@ -244,10 +244,14 @@ def tree(script: str) -> list[dict]:
     def item(n: Node) -> dict:
         edited = n.attrs.get("edited") == "by the user" or n.attrs.get("owner") == "user"
         if n.tag == "File":
+            # An agent canvas gives back its scripts as written: a <File> there has
+            # no id and no kind, only the path or name it was written with. Its
+            # file on the canvas is found by that name (see views._with_pictures).
             path = n.attrs.get("path") or n.attrs.get("name") or ""
+            file = re.split(r"[\\/]", path)[-1]
             image = n.attrs.get("kind") == "image"
             return {"type": "file", "label": "Image" if image else "File", "id": n.attrs.get("id", ""),
-                    "image": image, "name": re.sub(r"\.png$", "", path, flags=re.I), "text": "", "edited": edited}
+                    "image": image, "file": file, "name": re.sub(r"\.png$", "", file, flags=re.I), "text": "", "edited": edited}
         return {"type": n.tag.lower(), "label": n.tag, "name": n.attrs.get("name", "") if n.tag == "Note" else "",
                 "text": _clean(n.text), "edited": edited}
 

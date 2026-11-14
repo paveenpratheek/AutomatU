@@ -99,6 +99,36 @@ def test_an_image_is_read_from_sources_or_from_its_data_url(tmp_path, monkeypatc
     assert canvas_image("Plan", "nope") is None
 
 
+def test_an_image_an_agent_wrote_is_shown_from_its_name_as_a_hand_made_one_is_from_its_id(tmp_path, monkeypatch):
+    """An agent canvas comes back as its scripts: a <File> there has only the
+    path or name it was written with, no id and no kind - it is found on the
+    canvas by its name. A hand-made canvas's file keeps coming by its id."""
+    from automatu.sources.canvas import tree
+    from automatu.views import _with_pictures
+    _workspace(tmp_path, monkeypatch, [
+        {"id": "f1", "name": "AutomatU design - Main.png", "isImage": True, "imageWidth": 480, "imageHeight": 300},
+        {"id": "f2", "name": "notes.txt", "isImage": False},
+        {"id": "f3", "name": "flow.png", "isImage": True},
+    ])
+    script = ('<Canvas name="Plan"><Totem name="Design"><Area name="Main">'
+              '<File path="C:\\Users\\me\\scratch\\AutomatU design - Main.png"/>'
+              '<File path="AutomatU design - Main.png"/>'
+              '<File path="notes.txt"/>'
+              '<File path="not-on-the-canvas.png"/>'
+              '<File id="f3" kind="image" name="flow.png"/>'
+              '</Area></Totem></Canvas>')
+    totems = tree(script)
+    _with_pictures("Plan", totems)
+    full, short, text, missing, made = totems[0]["boxes"][0]["items"]
+    assert full["name"] == "AutomatU design - Main", "a written path shows as its file's name"
+    for it in (full, short):
+        assert (it["id"], it["label"], it["ratio"]) == ("f1", "Image", "480 / 300")
+        assert it["src"] == "/api/canvas-image?canvas=Plan&id=f1"
+    assert text["id"] == "f2" and "src" not in text and text["label"] == "File", "a file that is not an image stays a file"
+    assert missing["id"] == "" and "src" not in missing, "a name not on the canvas finds nothing"
+    assert made["src"] == "/api/canvas-image?canvas=Plan&id=f3", "a hand-made canvas's image still comes by its id"
+
+
 def test_a_canvas_name_cannot_walk_out_of_the_workspace(tmp_path, monkeypatch):
     import pytest
     from automatu.sources.canvas import canvas_files
