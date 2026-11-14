@@ -812,3 +812,14 @@ ul.tk-steps li.working::before { background: var(--hot); }
 .tk.wide .tk-m.me .tk-q { max-width: 75%; }
 .tk.wide .tk-choose { max-width: 420px; }
 .tk-foot .askrow .mt.tk-hint { font-family: inherit; font-size: 12px; }
+
+/* the Agents window as a pop-up: a dimmed backdrop over the whole page, the window in its middle,
+   the same for every hex. Hidden means gone: display:flex would otherwise keep an empty box over the map. */
+.talk { inset: 0; width: auto; height: auto; max-height: none; align-items: center; justify-content: center; padding: 24px; background: rgba(31, 30, 29, 0.32); }
+.talk[hidden] { display: none; }
+.talk > .tk { width: min(1040px, 100%); height: min(700px, 100%); box-sizing: border-box; }
+.talk:not(.wide) { padding: 12px; }
+.talk:not(.wide) > .tk { width: min(560px, 100%); }
+.talk.wide .tk { padding: 20px 24px; }
+.tk-cols { grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
+.tk.wide .tk-a { font-size: 14.5px; }
