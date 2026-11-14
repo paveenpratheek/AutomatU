@@ -169,6 +169,9 @@ def test_the_page_may_give_a_task_only_from_automatus_own_page(monkeypatch):
     from fastapi.testclient import TestClient
     from automatu import serve
     monkeypatch.setattr(serve, "_talk_place", lambda canvas: (REPO, (REPO,)))
+    monkeypatch.setattr(serve, "_talk_desk", lambda canvas: None)
+    import automatu.notices
+    monkeypatch.setattr(automatu.notices, "agents", lambda: [])
     started = []
     monkeypatch.setattr(talk, "conversations", lambda repo, repos=None, limit=5: [{"platform": "claude", "id": "c1", "title": "x", "at": "", "cwd": ""}])
     monkeypatch.setattr(talk, "start", lambda *a: started.append(a) or type("T", (), {"view": lambda self: {
@@ -181,3 +184,38 @@ def test_the_page_may_give_a_task_only_from_automatus_own_page(monkeypatch):
     assert r.status_code == 200 and r.json()["state"] == "starting" and started[0][:4] == ("Work Desks", REPO, "claude", "c1")
     monkeypatch.setattr(serve, "_talk_place", lambda canvas: (None, ()))
     assert "plans no repository" in c.get("/api/talk", params={"canvas": "Resume"}).json()["note"]
+
+
+def test_a_desk_canvas_finds_the_conversations_that_sat_at_its_desk(stores):
+    """PortFolio plans no repository; it is the Portfolio desk's Main canvas, and
+    its agents are the conversations that called Knowledge Desk's sit for it."""
+    claude, _ = stores
+    d = claude / "projects" / "E--Coding-CLI"
+    rows = [{"type": "user", "cwd": "E:\Coding CLI", "entrypoint": "claude-desktop", "sessionId": "c-sat", "message": {"content": "sit"}},
+            {"type": "assistant", "sessionId": "c-sat", "message": {"content": [
+                {"type": "tool_use", "name": "mcp__knowledgedesk__sit", "input": {"desk": "Portfolio", "agent": "Claude Code"}}]}},
+            {"type": "custom-title", "customTitle": "Portfolio desk", "sessionId": "c-sat"}]
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "c-sat.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf8")
+    found = talk.desk_conversations({"Portfolio", "portfolio"})
+    assert [(c["id"], c["title"], c["cwd"]) for c in found] == [("c-sat", "Portfolio desk", "E:\Coding CLI")]
+    assert talk.desk_conversations({"resume maker"}) == [] and talk.desk_conversations(set()) == []
+    assert "c-sat" not in [c["id"] for c in talk.conversations(REPO, (REPO,))], "sitting at a desk is not working on a project"
+
+
+def test_the_hex_of_a_desk_canvas_says_who_sits_there(monkeypatch):
+    from fastapi.testclient import TestClient
+    from automatu import serve
+    monkeypatch.setattr(serve, "_talk_place", lambda canvas: (None, ()))
+    monkeypatch.setattr(serve, "_talk_desk", lambda canvas: {"name": "Portfolio", "slug": "portfolio", "owner": "portfolio",
+        "sitting": [{"agent": "Claude Code", "client": "claude-code 2.1.325", "since": "2026-11-14T10:24:17Z", "away": False}]} if canvas == "PortFolio" else None)
+    monkeypatch.setattr(talk, "desk_conversations", lambda desks, repos=(), limit=5: [{"platform": "claude", "id": "c-sat", "title": "Portfolio desk", "at": "2026-11-14T10:25:00+00:00", "cwd": "E:\Coding CLI"}] if "portfolio" in {x.lower() for x in desks} else [])
+    started = []
+    monkeypatch.setattr(talk, "start", lambda *a: started.append(a) or type("T", (), {"view": lambda self: {
+        "id": "talk-2", "canvas": "PortFolio", "platform": "claude", "conversation": "c-sat", "text": "hi", "state": "starting", "started": "now"}})())
+    c = TestClient(serve.app)
+    v = c.get("/api/talk", params={"canvas": "PortFolio"}).json()
+    assert (v["desk"], v["agents"], v["sitting"][0]["agent"], [x["id"] for x in v["conversations"]]) == ("Portfolio", ["Claude Code"], "Claude Code", ["c-sat"])
+    r = c.post("/api/talk", json={"canvas": "PortFolio", "platform": "claude", "conversation": "c-sat", "text": "hi"}, headers={"origin": "http://testserver"})
+    assert r.status_code == 200 and started[0][:4] == ("PortFolio", "E:\Coding CLI", "claude", "c-sat"), "it works in the conversation's own folder"
+    assert "no desk's Main canvas" in c.get("/api/talk", params={"canvas": "Resume"}).json()["note"]

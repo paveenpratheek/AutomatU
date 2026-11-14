@@ -280,10 +280,20 @@ class TalkRun(BaseModel):
     ended: str | None = None
 
 
+class TalkSitter(BaseModel):
+    """An agent sitting at the desk whose Main canvas this is, as Knowledge Desk says."""
+    agent: str
+    client: str = ""
+    since: str | None = None
+    away: bool = False
+
+
 class TalkView(BaseModel):
     """What the agents box on a canvas's hex shows."""
     canvas: str
     repo: str | None = None
+    desk: str | None = None              # the desk whose Main canvas this is, if any
+    sitting: list[TalkSitter] = []
     agents: list[str] = []
     conversations: list[TalkConversation] = []
     run: TalkRun | None = None

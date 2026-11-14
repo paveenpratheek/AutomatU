@@ -79,7 +79,7 @@ def _claude_read(path: Path, repos: tuple[str, ...]) -> dict:
     key = str(path)
     seen = _claude_seen.get(key)
     if not seen or seen["repos"] != repos or st.st_size < seen["offset"]:
-        seen = {"repos": repos, "offset": 0, "cwds": [], "title": "", "prompt": "", "entry": set(), "mentions": set()}
+        seen = {"repos": repos, "offset": 0, "cwds": [], "title": "", "prompt": "", "entry": set(), "mentions": set(), "desks": set()}
     with open(path, "rb") as f:
         f.seek(seen["offset"])
         while True:
@@ -127,6 +127,13 @@ def _claude_lines(seen: dict, body: str, repos: tuple[str, ...]) -> None:
             seen["ai"] = row["aiTitle"]
         elif row.get("type") == "last-prompt" and row.get("lastPrompt"):
             seen["prompt"] = row["lastPrompt"]
+        if "__sit" in line:
+            # the conversation sat at a desk: Knowledge Desk's sit, with the desk it named
+            for c in (row.get("message") or {}).get("content") or []:
+                if isinstance(c, dict) and c.get("type") == "tool_use" and str(c.get("name", "")).endswith("knowledgedesk__sit"):
+                    desk = str((c.get("input") or {}).get("desk") or "").strip().lower()
+                    if desk:
+                        seen["desks"].add(desk)
 
 
 def _mangled(folder: str) -> str:
@@ -141,7 +148,9 @@ def home_folder(path: Path, cwds: list[str]) -> str:
     return next((c for c in cwds if _mangled(c) == path.parent.name), cwds[0] if cwds else "")
 
 
-def claude_conversations(repo: str, repos: tuple[str, ...]) -> list[dict]:
+def claude_conversations(repo: str | None, repos: tuple[str, ...], desks: set[str] | None = None) -> list[dict]:
+    """The user's own Claude conversations on a project - opened in its folder
+    or worked in it - or, given desks, the ones that sat at one of them."""
     out = []
     root = claude_home() / "projects"
     if not root.is_dir():
@@ -156,7 +165,9 @@ def claude_conversations(repo: str, repos: tuple[str, ...]) -> list[dict]:
             continue
         if not (s["entry"] & USER_ENTRYPOINTS):
             continue          # the desks' and the adapter's own sessions are not the user's conversations
-        if not (any(_under(c, repo) for c in s["cwds"]) or repo in s["mentions"]):
+        on_project = bool(repo) and (any(_under(c, repo) for c in s["cwds"]) or repo in s["mentions"])
+        at_desk = bool(desks) and bool(s.get("desks", set()) & desks)
+        if not (on_project or at_desk):
             continue
         out.append({"platform": "claude", "id": cid, "title": s["title"] or s["prompt"][:80] or "Untitled",
                     "at": _iso(s["mtime"]), "cwd": home_folder(path, s["cwds"])})
@@ -211,6 +222,18 @@ def conversations(repo: str, repos: tuple[str, ...] | None = None, limit: int = 
     repos = tuple(repos or (repo,))
     with _scan_lock:          # the warm-up and a click may look at once
         found = claude_conversations(repo, repos) + agy_conversations(repo)
+    return sorted(found, key=_sort_key, reverse=True)[:limit]
+
+
+def desk_conversations(desks: set[str], repos: tuple[str, ...] = (), limit: int = LIMIT) -> list[dict]:
+    """The conversations that sat at a desk - by its name or its slug - newest
+    first: the agents of a canvas that plans no repository but is a desk's
+    Main canvas, found by the sit they called (Knowledge Desk's sit tool)."""
+    desks = {d.strip().lower() for d in desks if d}
+    if not desks:
+        return []
+    with _scan_lock:
+        found = claude_conversations(None, tuple(repos), desks)
     return sorted(found, key=_sort_key, reverse=True)[:limit]
 
 

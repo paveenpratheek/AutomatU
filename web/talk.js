@@ -17,12 +17,21 @@ export function dayOf(at, now = new Date()) {
   return d.getDate() + ' ' + MONTHS[d.getMonth()];
 }
 
-/* The box itself: placed on the hex's top edge, near its left corner. */
-export function agentsBoxHtml(cell, canvas) {
+export function timeOf(at) {
+  const d = new Date(String(at || ''));
+  return isNaN(d) ? '' : String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+/* The box itself: placed on the hex's top edge, near its left corner, with a
+   green dot while an agent sits at the desk whose Main canvas this is. */
+export function agentsBoxHtml(cell, canvas, sitting = [], desk = '') {
   // just inside the top edge, beside its left corner: clear of a title on two lines
   const left = cell.l + cell.w * 0.25 + 4, top = cell.t + 5;
-  return `<button type="button" class="agbox" data-talk="${esc(canvas)}" style="left:${left.toFixed(1)}px;top:${top.toFixed(1)}px" ` +
-    `title="Give the agent a task" aria-label="Give ${esc(canvas)}'s agent a task">` +
+  const here = (sitting || []).filter((s) => !s.away);
+  const said = here.length ? `${here.map((s) => s.agent).join(', ')} ${here.length === 1 ? 'is' : 'are'} sitting at the ${desk} desk - give a task`
+    : 'Give the agent a task';
+  return `<button type="button" class="agbox${here.length ? ' on' : ''}" data-talk="${esc(canvas)}" style="left:${left.toFixed(1)}px;top:${top.toFixed(1)}px" ` +
+    `title="${esc(said)}" aria-label="${esc(said)}">` + (here.length ? `<i class="agdot" aria-hidden="true"></i>` : '') +
     `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"></circle>` +
     `<path d="M3 13.5c.8-2.6 2.8-3.8 5-3.8s4.2 1.2 5 3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>`;
 }
@@ -49,6 +58,9 @@ export function talkHtml(T, now = new Date()) {
   if (!T) return '';
   const D = T.data, convs = (D && D.conversations) || [];
   const who = D && D.agents && D.agents.length ? D.agents.join(', ') : 'The agent';
+  const here = ((D && D.sitting) || []).filter((s) => !s.away);
+  const where = D && D.desk ? (here.length ? `sitting at the ${D.desk} desk${here[0].since ? ' since ' + timeOf(here[0].since) : ''}`
+    : `nobody is sitting at the ${D.desk} desk`) : T.canvas;
   let body;
   const run = T.run && T.run.id !== T.dismissed ? T.run : null;
   if (!D) body = `<p class="mt">Reading the agent's conversations…</p>`;
@@ -69,6 +81,6 @@ export function talkHtml(T, now = new Date()) {
       }).join('') + `</div>` : `<p class="mt">The agent has no conversation on this project yet in the Claude app or Antigravity.</p>`) +
       `<p class="mt tk-note">The agent continues a copy, so the conversation in the app is not changed.</p>`;
   }
-  return `<div class="tk" role="dialog" aria-label="${esc(who)}"><div class="tk-h"><span class="tk-who"><b>${esc(who)}</b><span class="mt">${esc(T.canvas)}</span></span>` +
+  return `<div class="tk" role="dialog" aria-label="${esc(who)}"><div class="tk-h"><span class="tk-who"><b>${here.length ? '<i class="agdot" aria-hidden="true"></i>' : ''}${esc(who)}</b><span class="mt">${esc(where)}</span></span>` +
     `<button type="button" class="tk-x" data-talk-close="1" aria-label="Close">×</button></div>${body}</div>`;
 }

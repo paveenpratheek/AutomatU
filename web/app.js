@@ -199,8 +199,12 @@ function renderMain() {
       (c.tk ? `<span class="trk-mark${c.tk.moved ? ' moved' : ''}">${esc(c.tk.label)}</span>` : '') +
       (c.kws.length ? `<span class="heat">${c.kws.map((k) => `<i><b style="background:${k.col}"></b>${k.n}</i>`).join('')}${c.heat ? `<span>${c.heat}</span>` : ''}</span>` : '') +
       `</button></div>`).join('') +
-    /* The agents box (box 30): on each canvas that plans a project, its agent can be given a task. */
-    (view === 'root' ? cells.filter((c) => (reg[c.id].repos || []).length).map((c) => agentsBoxHtml(c, reg[c.id].name)).join('') : '') +
+    /* The agents box (box 30): on each canvas that plans a project or is a desk's
+       Main canvas, its agent can be given a task; a green dot while one sits there. */
+    (view === 'root' ? cells.map((c) => {
+      const name = reg[c.id].name, desk = deskOf(name);
+      return (reg[c.id].repos || []).length || desk ? agentsBoxHtml(c, name, desk ? desk.sitting : [], desk ? desk.name : '') : '';
+    }).join('') : '') +
     `</div>` +
     `<div class="legend">` + [['#E4E4E4', 'Canvas'], [TONES[0], 'Totem'], [mix(TONES[0], 0.4), 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#C6613F', 'Selected'], ['#E3A48C', 'Tracked by a desk']]
       .map(([c, t]) => `<span><span class="sw hexclip" style="background:${c};box-shadow:inset 0 0 0 1px rgba(31,30,29,0.12)"></span>${t}</span>`).join('') + `</div>`;
@@ -1314,15 +1318,21 @@ document.addEventListener('submit', (e) => {
 });
 document.addEventListener('input', (e) => { if (S.talk && e.target.id === 'tktext') S.talk.draft = e.target.value; });
 
+/* The desk whose Main canvas a canvas is, as Knowledge Desk last said. */
+const deskOf = (canvas) => ((S.kd && S.kd.desks) || []).find((d) => d.main_canvas === canvas) || null;
+/* Who sits where: the Main map redraws when it changes, so the agents box's dot follows. */
+const seated = (kd) => JSON.stringify(((kd && kd.desks) || []).map((d) => [d.main_canvas, (d.sitting || []).filter((s) => !s.away).map((s) => s.agent)]));
+
 /* What Knowledge Desk serves the tab (box 25), and the Tracking layer on Main. */
 function loadKd() {
   return getJson('/api/kd').then((fresh) => {
-    const before = JSON.stringify(S.kd && S.kd.tracking);
+    const before = JSON.stringify(S.kd && S.kd.tracking), sat = seated(S.kd);
     const j = S.kd = mergeOverview(S.kd, fresh);
     if (S.tab === 'kd' && S.kdSec !== 'flows') renderKd();
     else if (S.tab === 'kd' && (!S.kf || !S.kf.desk) && (j.desks || []).length) renderWorkflows();   // the desks came in
     else if (S.tab === 'kd') renderChrome();
     else if (S.tab === 'main' && before !== JSON.stringify(j.tracking)) { S.track = null; renderMain(); }
+    else if (S.tab === 'main' && sat !== seated(j)) renderMain();
   }).catch(() => {});
 }
 
