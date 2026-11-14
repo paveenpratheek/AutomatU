@@ -1261,9 +1261,21 @@ function renderTalk() {
   const w = Math.min(380, innerWidth - 24);
   el.style.width = w + 'px';
   el.style.left = Math.max(12, Math.min(T.x, innerWidth - w - 12)) + 'px';
-  el.style.top = Math.max(12, Math.min(T.y, innerHeight - 260)) + 'px';
+  /* It never runs off the screen: opened low, it moves up to keep room; its
+     height is what is left below where it opens, and only its middle scrolls. */
+  const top = Math.max(12, Math.min(T.y, innerHeight - 420));
+  el.style.top = top + 'px';
+  el.style.maxHeight = (innerHeight - top - 12) + 'px';
   if (typingIn('#talk')) return;
+  /* Redrawn as the task runs: what is being read stays where it is, and the
+     newest words are followed only by someone already at the bottom. */
+  const body = el.querySelector('.tk-body'), steps = el.querySelector('.tk-steps');
+  const keep = body ? { top: body.scrollTop, end: body.scrollTop + body.clientHeight >= body.scrollHeight - 8 } : null;
+  const stepsEnd = steps ? steps.scrollTop + steps.clientHeight >= steps.scrollHeight - 8 : true, stepsTop = steps ? steps.scrollTop : 0;
   setHtml(el, talkHtml(T));
+  const b2 = el.querySelector('.tk-body'), s2 = el.querySelector('.tk-steps');
+  if (b2 && keep) b2.scrollTop = keep.end ? b2.scrollHeight : keep.top;
+  if (s2) s2.scrollTop = stepsEnd ? s2.scrollHeight : stepsTop;
 }
 
 function loadTalk() {

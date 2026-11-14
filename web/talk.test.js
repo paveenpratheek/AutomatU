@@ -44,7 +44,8 @@ test('a running task shows the words, the steps, the reply and the ask with its 
     ask: { title: 'Run tests', options: [{ id: 'allow', name: 'Allow once', kind: 'allow_once' }, { id: 'deny', name: 'Deny', kind: 'reject_once' }] } };
   const h = talkHtml({ canvas: 'Work Desks', data: DATA, run }, NOW);
   assert.match(h, /<div class="tk-q">Why is &lt;tracking&gt; slow\?<\/div>/);
-  assert.match(h, /<li class="completed">Read index\.py<\/li>/);
+  assert.match(h, /<div class="tk-l">1 step<\/div><ul class="tk-steps"><li class="completed" title="Read index\.py"><span>Read index\.py<\/span><\/li>/,
+    'each step on one line, the whole of it on hover');
   assert.match(h, /The agent asks to: <b>Run tests<\/b>.*data-talk-answer="allow">Allow once.*class="kbtn quiet" data-talk-answer="deny">Deny/s);
   assert.match(h, /Waiting on your answer · in a copy of “Knowledge Desk fix”/);
   assert.match(h, /data-talk-stop="1"/);
@@ -65,4 +66,14 @@ test('a desk canvas shows who sits at its desk: a green dot on the box, and sinc
   assert.match(h, /<b><i class="agdot"[^>]*><\/i>Claude Code<\/b><span class="mt">sitting at the Portfolio desk since \d\d:\d\d<\/span>/);
   assert.match(talkHtml({ canvas: 'PortFolio', data: { desk: 'Portfolio', sitting: [], agents: ['portfolio'], conversations: [] } }, NOW),
     /nobody is sitting at the Portfolio desk/);
+});
+
+test('only the middle of the window scrolls: the header and the footer with Stop stay in view', () => {
+  const run = { id: 't1', conversation: 'c1', text: 'a task', state: 'working', reply: 'x'.repeat(5000), error: '', ask: null,
+    steps: Array.from({ length: 40 }, (_, i) => ({ id: String(i), title: 'cd "E:/Coding CLI/Portfolio" && grep -rn something ' + i, status: 'completed' })) };
+  const h = talkHtml({ canvas: 'PortFolio', data: DATA, run }, NOW);
+  const body = h.indexOf('<div class="tk-body">'), foot = h.indexOf('<div class="tk-foot">');
+  assert.ok(h.indexOf('class="tk-h"') < body && body < foot, 'header, then the scrolling body, then the footer');
+  assert.ok(h.lastIndexOf('data-talk-stop') > foot, 'Stop is in the footer, not in what scrolls');
+  assert.match(h, /<div class="tk-l">40 steps<\/div>/);
 });
