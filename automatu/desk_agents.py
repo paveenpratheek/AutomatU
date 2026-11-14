@@ -56,6 +56,17 @@ PORT = int(os.environ.get("AUTOMATU_PORT", "7790"))
 MCP_ALLOWED = ["knowledgedesk", "notex", "automatu", "desks", "gitx"]   # the desk's own servers: never asked
 
 
+def missing() -> str:
+    """Empty when Work Desks is installed beside AutomatU; else what to do.
+    The desk agents run on Work Desks' occupant, guard and policy, and Work
+    Desks is not on PyPI, so an AutomatU installed alone has no desk agents."""
+    import importlib.util
+    if importlib.util.find_spec("workdesks") is None:
+        return ("Agents at desks need Work Desks installed beside AutomatU: run "
+                r'.venv\Scripts\pip install -e "<Project WorkDesk folder>", then start AutomatU again.')
+    return ""
+
+
 def home() -> Path:
     """Where each desk's agent keeps its folder: its guard, its sessions."""
     return Path(os.environ.get("AUTOMATU_DESK_AGENTS", r"E:\ter-manager\plugins\automatu\desk-agents"))
@@ -422,8 +433,8 @@ class Manager:
         """The agents the user chose before AutomatU last stopped: placed again,
         their processes started at their next message. What was running or
         queued when it stopped is marked so. Only the AutomatU that runs the desk
-        agents does this; another touches nothing."""
-        if not self.holds():
+        agents does this; another touches nothing, and so does one without Work Desks."""
+        if missing() or not self.holds():
             return
         db().execute("UPDATE desk_message SET state='stopped' WHERE kind='message' AND state IN ('queued','running')")
         db().execute("UPDATE desk_message SET state='not answered' WHERE kind='ask' AND state='waiting'")
@@ -470,6 +481,8 @@ class Manager:
         f = Path(folder or "")
         if not folder or not f.is_dir():
             raise ValueError("give the folder where the agent does the work: one that exists on this PC")
+        if missing():
+            raise ValueError(missing())
         if not self.holds():
             raise ValueError(ELSEWHERE)
         slug = desk["slug"]

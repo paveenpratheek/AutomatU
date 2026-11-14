@@ -375,7 +375,9 @@ def _desk_agent(canvas: str):
 def desk_agent_view(canvas: str) -> dict:
     """What the Agents button on a canvas's hex opens: the agent placed at the
     desk whose Main canvas it is - or the choice of one - and the desk's chat."""
-    from .desk_agents import ELSEWHERE, MANAGER, messages, models, said_by
+    from .desk_agents import ELSEWHERE, MANAGER, messages, missing, models, said_by
+    if missing():
+        return {"canvas": canvas, "note": missing()}
     if not MANAGER.holds():
         return {"canvas": canvas, "note": ELSEWHERE}
     try:

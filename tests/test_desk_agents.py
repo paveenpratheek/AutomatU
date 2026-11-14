@@ -10,9 +10,16 @@ import sys
 import time
 from pathlib import Path
 
+import importlib.util
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+
+# The desk agents run on Work Desks, which is not on PyPI: where it is not
+# installed beside AutomatU - as on CI - only the test of that case runs.
+pytestmark = pytest.mark.skipif(importlib.util.find_spec("workdesks") is None,
+                                reason="Work Desks is not installed beside AutomatU")
 
 PAGE = {"origin": "http://testserver"}
 
