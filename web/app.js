@@ -19,6 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
+import { agentsBoxHtml, talkHtml } from './talk.js';
 import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
@@ -198,6 +199,8 @@ function renderMain() {
       (c.tk ? `<span class="trk-mark${c.tk.moved ? ' moved' : ''}">${esc(c.tk.label)}</span>` : '') +
       (c.kws.length ? `<span class="heat">${c.kws.map((k) => `<i><b style="background:${k.col}"></b>${k.n}</i>`).join('')}${c.heat ? `<span>${c.heat}</span>` : ''}</span>` : '') +
       `</button></div>`).join('') +
+    /* The agents box (box 30): on each canvas that plans a project, its agent can be given a task. */
+    (view === 'root' ? cells.filter((c) => (reg[c.id].repos || []).length).map((c) => agentsBoxHtml(c, reg[c.id].name)).join('') : '') +
     `</div>` +
     `<div class="legend">` + [['#E4E4E4', 'Canvas'], [TONES[0], 'Totem'], [mix(TONES[0], 0.4), 'Sub-totem or box: open'], ['#FFFFFF', 'Box with content: read'], ['#C6613F', 'Selected'], ['#E3A48C', 'Tracked by a desk']]
       .map(([c, t]) => `<span><span class="sw hexclip" style="background:${c};box-shadow:inset 0 0 0 1px rgba(31,30,29,0.12)"></span>${t}</span>`).join('') + `</div>`;
@@ -1225,6 +1228,92 @@ document.addEventListener('submit', (e) => {
   askNow(q, S.ask.only);
 });
 
+/* ------------------------------------------------------------ talking to the agent from its hex (box 30) */
+
+/* The window the agents box opens: outside the map, so redrawing the map never
+   closes it or loses what is being typed; the task runs on the server and is
+   asked after every moment while it works. */
+const talkLive = (r) => !!r && ['starting', 'working', 'asking'].includes(r.state);
+let talkTimer = 0;
+
+function openTalk(canvas, btn) {
+  if (S.talk && S.talk.canvas === canvas) return closeTalk();
+  const r = btn.getBoundingClientRect();
+  S.talk = { canvas, x: r.left, y: r.bottom + 6, data: null, pick: '', draft: '', run: null, dismissed: '', said: '', busy: false };
+  renderTalk();
+  loadTalk();
+}
+
+function closeTalk() {
+  clearTimeout(talkTimer);
+  S.talk = null;
+  renderTalk();
+}
+
+function renderTalk() {
+  const el = $('talk'), T = S.talk;
+  el.hidden = !T;
+  if (!T) { setHtml(el, ''); return; }
+  const w = Math.min(380, innerWidth - 24);
+  el.style.width = w + 'px';
+  el.style.left = Math.max(12, Math.min(T.x, innerWidth - w - 12)) + 'px';
+  el.style.top = Math.max(12, Math.min(T.y, innerHeight - 260)) + 'px';
+  if (typingIn('#talk')) return;
+  setHtml(el, talkHtml(T));
+}
+
+function loadTalk() {
+  const T = S.talk;
+  if (!T) return;
+  getJson('/api/talk?canvas=' + encodeURIComponent(T.canvas))
+    .then((j) => { if (S.talk !== T) return; T.data = j; if (j.run && !T.run) T.run = j.run; renderTalk(); if (talkLive(T.run)) pollTalk(); })
+    .catch((e) => { if (S.talk === T) { T.data = { agents: [], conversations: [], note: 'Could not read the conversations: ' + e.message }; renderTalk(); } });
+}
+
+function pollTalk() {
+  clearTimeout(talkTimer);
+  const T = S.talk;
+  if (!T || !T.run) return;
+  getJson('/api/talk/run/' + encodeURIComponent(T.run.id))
+    .then((r) => { if (S.talk !== T) return; T.run = r; renderTalk(); if (talkLive(r)) talkTimer = setTimeout(pollTalk, 800); })
+    .catch(() => { if (S.talk === T) talkTimer = setTimeout(pollTalk, 2000); });
+}
+
+function talkSend(form) {
+  const T = S.talk;
+  if (!T || T.busy) return;
+  const text = String(new FormData(form).get('text') || '');
+  const convs = (T.data && T.data.conversations) || [];
+  const pick = T.pick || (convs[0] ? convs[0].platform + ':' + convs[0].id : '');
+  const at = pick.indexOf(':'), platform = pick.slice(0, at), conversation = pick.slice(at + 1);
+  if (!text.trim() || !conversation) return;
+  T.busy = true; T.said = ''; T.draft = text;
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  post('/api/talk', { canvas: T.canvas, platform, conversation, text })
+    .then((j) => { if (j && j.id) { T.run = j; T.draft = ''; pollTalk(); } else T.said = (j && j.detail) || 'The task was not given.'; })
+    .catch(() => { T.said = 'AutomatU could not be reached.'; })
+    .then(() => { T.busy = false; renderTalk(); });
+}
+
+function talkClick(e) {
+  const T = S.talk;
+  if (e.target.closest('[data-talk-close]')) return closeTalk();
+  const pk = e.target.closest('[data-talk-pick]');
+  if (pk) { T.pick = pk.dataset.talkPick; return renderTalk(); }
+  const an = e.target.closest('[data-talk-answer]');
+  if (an && T.run) { an.disabled = true; return post('/api/talk/run/' + encodeURIComponent(T.run.id) + '/answer', { option: an.dataset.talkAnswer || null }).then(pollTalk, pollTalk); }
+  if (e.target.closest('[data-talk-stop]') && T.run) return post('/api/talk/run/' + encodeURIComponent(T.run.id) + '/stop', {}).then(pollTalk, pollTalk);
+  if (e.target.closest('[data-talk-new]') && T.run) { T.dismissed = T.run.id; return renderTalk(); }
+}
+
+document.addEventListener('submit', (e) => {
+  const f = e.target.closest('[data-talkform]');
+  if (!f) return;
+  e.preventDefault();
+  talkSend(f);
+});
+document.addEventListener('input', (e) => { if (S.talk && e.target.id === 'tktext') S.talk.draft = e.target.value; });
+
 /* What Knowledge Desk serves the tab (box 25), and the Tracking layer on Main. */
 function loadKd() {
   return getJson('/api/kd').then((fresh) => {
@@ -1592,6 +1681,10 @@ function closePic() { const lb = $('lightbox'); if (lb) { lb.remove(); return tr
 
 document.addEventListener('click', (e) => {
   if (e.target.closest('#lightbox')) return closePic();
+  const talkBox = e.target.closest('[data-talk]');
+  if (talkBox) return openTalk(talkBox.dataset.talk, talkBox);
+  if (S.talk && e.target.closest('#talk')) return talkClick(e);
+  if (S.talk) closeTalk();   // a click elsewhere puts the window away; a running task carries on
   const dropBtn = e.target.closest('[data-drop]');
   if (dropBtn) {
     S.drop = S.drop === dropBtn.dataset.drop ? null : dropBtn.dataset.drop;
@@ -1713,6 +1806,7 @@ document.addEventListener('pointermove', (e) => {
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (closePic()) return;
+  if (S.talk) return closeTalk();
   if (S.drop) { const k = S.drop; S.drop = null; renderTop(); const f = $({ bell: 'bellbtn', canvases: 'canvasesbtn' }[k] || 'agentsbtn'); if (f) f.focus(); return; }
   if (S.tab === 'code' && S.net) { S.net = null; S.netSel = null; render(); return; }
   if (S.tab === 'code' && S.cr) { S.cr = null; render(); return; }

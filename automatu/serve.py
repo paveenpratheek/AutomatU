@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
 from .models import (AgentsAnswer, ArrangementSave, CanvasAsk, CanvasChange, KdDeskAnswer, KdDeskChange, KdOverview, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
-                     InterruptAsk, NoticesAnswer, SaveAnswer, Timeline)
+                     InterruptAsk, NoticesAnswer, SaveAnswer, TalkAnswer, TalkRun, TalkStart, TalkView, Timeline)
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 
@@ -327,6 +327,85 @@ def arrangements_current(desk: str) -> dict:
     return current(desk)
 
 
+# ------------------------------------------------------------ talking to the agent from its hex (box 30, t-275ce407f2)
+
+def _talk_place(canvas: str) -> tuple[str | None, tuple[str, ...]]:
+    """The repository a canvas plans, and every bound repository (a conversation
+    is placed by the folders it worked in)."""
+    from .binding import all_bindings
+    bs = all_bindings()
+    return next((b["repo"] for b in bs if b["canvas"] == canvas), None), tuple(b["repo"] for b in bs)
+
+
+@app.get("/api/talk", response_model=TalkView)
+def talk_view(canvas: str) -> dict:
+    """The agents box on a canvas's hex: who answers for it, their last five
+    conversations on the project in the Claude app or Antigravity, and the task
+    running or last run there."""
+    from . import talk
+    from .notices import agents
+    repo, repos = _talk_place(canvas)
+    run = talk.latest(canvas)
+    out = {"canvas": canvas, "repo": repo, "run": run.view() if run else None}
+    if not repo:
+        out["note"] = "This canvas plans no repository, so there is no project to find the agent's conversations by."
+        return out
+    out["agents"] = [a["agent"] for a in agents() if any(r["repo"] == repo for r in a["repos"])]
+    out["conversations"] = talk.conversations(repo, repos)
+    return out
+
+
+@app.post("/api/talk", response_model=TalkRun)
+def talk_start(ask: TalkStart, request: Request) -> dict:
+    """The user's task, passed on to the agent in a copy of the conversation
+    picked - only from AutomatU's own page, as the Interrupt is."""
+    _own_page(request, "give an agent a task")
+    from . import talk
+    repo, repos = _talk_place(ask.canvas)
+    if not repo:
+        raise HTTPException(400, "this canvas plans no repository")
+    if not any(c["id"] == ask.conversation and c["platform"] == ask.platform for c in talk.conversations(repo, repos, limit=50)):
+        raise HTTPException(400, "that is not one of the agent's conversations on this project")
+    try:
+        return talk.start(ask.canvas, repo, ask.platform, ask.conversation, ask.text).view()
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/api/talk/run/{talk_id}", response_model=TalkRun)
+def talk_run(talk_id: str) -> dict:
+    from . import talk
+    t = talk.get(talk_id)
+    if not t:
+        raise HTTPException(404, "no such task")
+    return t.view()
+
+
+@app.post("/api/talk/run/{talk_id}/answer", response_model=TalkRun)
+def talk_answer(talk_id: str, ans: TalkAnswer, request: Request) -> dict:
+    """The user's answer to a permission the agent asked for: an option it
+    offered, or none for no."""
+    _own_page(request, "answer an agent")
+    from . import talk
+    t = talk.get(talk_id)
+    if not t:
+        raise HTTPException(404, "no such task")
+    if not t.answer(ans.option):
+        raise HTTPException(409, "the agent is not waiting on an answer")
+    return t.view()
+
+
+@app.post("/api/talk/run/{talk_id}/stop", response_model=TalkRun)
+def talk_stop(talk_id: str, request: Request) -> dict:
+    _own_page(request, "stop an agent")
+    from . import talk
+    t = talk.get(talk_id)
+    if not t:
+        raise HTTPException(404, "no such task")
+    t.stop()
+    return t.view()
+
+
 @app.middleware("http")
 async def no_cache(request, call_next):
     res = await call_next(request)
@@ -338,6 +417,17 @@ async def no_cache(request, call_next):
 app.mount("/", StaticFiles(directory=WEB, html=True), name="web")
 
 
+def _warm_talk() -> None:
+    try:
+        from . import talk
+        from .binding import all_bindings
+        repos = tuple(b["repo"] for b in all_bindings())
+        for r in repos:
+            talk.conversations(r, repos)
+    except Exception:          # a cold first click is slower, nothing worse
+        pass
+
+
 def serve(port: int = 7790, watch: bool = True, every: float = 4.0) -> None:
     import uvicorn
     watcher = None
@@ -346,6 +436,10 @@ def serve(port: int = 7790, watch: bool = True, every: float = 4.0) -> None:
         from .watch import Watcher
         watcher = Watcher(every=every)
         watcher.start()
+    # The first look through the apps' conversations reads every transcript once
+    # - tens of seconds - so it is done in the background before anyone asks.
+    import threading
+    threading.Thread(target=_warm_talk, name="talk-warm", daemon=True).start()
     try:
         uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
     finally:
