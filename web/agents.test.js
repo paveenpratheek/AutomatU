@@ -62,3 +62,30 @@ test('a day is today or a date', () => {
   assert.equal(dayOf('2026-11-14T09:48:00', NOW), 'today');
   assert.equal(dayOf('2026-11-13 10:00:00+00:00', NOW), '13 Nov');
 });
+
+test('on a wide screen the window is landscape: the chat beside a panel of the work in hand, the queue and the agent', () => {
+  const agent = { agent: 'agy', model: 'gemini-3.8-flash-low', folder: 'E:\Portfolio', state: 'working', working_on: 2, chosen_at: '2026-11-14T11:00:00',
+    steps: [{ title: 'Read package.json', status: 'done' }, { title: 'python -m http.server 8080', status: 'working' }], said: 'Starting' };
+  const messages = [
+    { id: 2, at: '2026-11-14T11:59:00', who: 'desk-agent-notes', by: 'The agent at the Notes desk', kind: 'message', text: 'Host the site on 8080', state: 'running' },
+    { id: 3, at: '2026-11-14T11:59:10', who: 'agent', by: 'The agent', kind: 'ask', text: 'Run npm run dev', state: 'waiting', data: {} },
+    { id: 4, at: '2026-11-14T11:59:20', who: 'user', by: 'You', kind: 'message', text: 'Then check it', state: 'queued' },
+  ];
+  const h = agentsHtml({ canvas: 'PortFolio', wide: true, data: { canvas: 'PortFolio', desk: DESK, agent, messages, models: MODELS } }, NOW);
+  assert.match(h, /class="tk wide"/);
+  const main = h.indexOf('class="tk-main"'), side = h.indexOf('class="tk-side"');
+  assert.ok(main > 0 && side > main, 'the chat first, the panel beside it');
+  const chat = h.slice(main, side), panel = h.slice(side);
+  assert.match(chat, /data-agent-answer="3" data-allow="1">Allow/, 'asks are still answered in the chat');
+  assert.match(chat, /textarea id="tktext"/);
+  assert.doesNotMatch(chat, /data-agent-takeback|Read package\.json/, 'the queue and the live steps are in the panel, not twice');
+  assert.match(panel, /Now<\/div><div class="tk-now"><span class="tk-chip live">working…<\/span><div class="tk-nowq" title="Host the site on 8080">/);
+  assert.match(panel, /from The agent at the Notes desk/);
+  assert.match(panel, /2 steps<\/div><ul class="tk-steps"><li class="done"[^>]*><span>Read package\.json/);
+  assert.match(panel, /1 ask waiting on you/);
+  assert.match(panel, /Queue · 1<\/div><div class="tk-qi"><span class="tt" title="Then check it">.*data-agent-takeback="4">Take back/s);
+  assert.match(panel, /<code title="E:\Portfolio">E:\Portfolio<\/code>/);
+  assert.match(panel, /data-agent-stop="1">Stop what it is doing/);
+  const choose = agentsHtml({ canvas: 'PortFolio', wide: true, data: { canvas: 'PortFolio', desk: DESK, agent: null, messages: [], models: MODELS } }, NOW);
+  assert.match(choose, /class="tk wide".*Place the agent.*class="tk-side".*Nothing has been said at this desk yet/s, 'the choice beside what was said before');
+});

@@ -789,3 +789,26 @@ ul.tk-steps li.working::before { background: var(--hot); }
 .tk-foot.col { flex-direction: column; align-items: stretch; gap: 6px; }
 .tk-foot .askrow .mt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
 .tk-foot .askrow { gap: 8px; }
+
+/* the Agents window, landscape on a wide screen: the chat beside what the agent is doing */
+.talk.wide .tk { height: 100%; box-sizing: border-box; padding: 18px 20px; }
+.tk-cols { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 20px; }
+.tk-main { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
+.tk-side { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding-left: 18px; border-left: 1px solid var(--line); overscroll-behavior: contain; }
+.tk-side > * { flex: none; }
+.tk-sec { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tk-sec .tk-l { text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+.tk-now { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tk-nowq { font-size: 13px; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tk-side ul.tk-steps { max-height: none; }
+.tk-wait { padding: 10px 12px; border-radius: 12px; background: var(--hot-soft); gap: 2px; }
+.tk-wait b { font-weight: 500; font-size: 13px; color: var(--hot-ink); }
+.tk-qi { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: var(--paper-2); min-width: 0; }
+.tk-qi .tt { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-qi .tk-link { align-self: flex-start; padding-left: 0; }
+.tk-kv { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
+.tk-kv code { font-family: var(--mono); font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-sec .kbtn { align-self: flex-start; min-height: 30px; font-size: 13px; margin-top: 4px; }
+.tk.wide .tk-m.me .tk-q { max-width: 75%; }
+.tk.wide .tk-choose { max-width: 420px; }
+.tk-foot .askrow .mt.tk-hint { font-family: inherit; font-size: 12px; }
