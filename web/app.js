@@ -19,7 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
-import { AGENT_NAMES, agentsBoxHtml, agentsHtml as deskAgentHtml } from './agents.js';
+import { AGENT_NAMES, agentsBoxHtml, agentsHtml as deskAgentHtml, placeTalk } from './agents.js';
 import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
 import { addStep, editorHtml, moveStep, normal, removeStep, setPlaced, toSave } from './workflows.js';
@@ -1243,7 +1243,7 @@ let talkTimer = 0;
 function openTalk(canvas, btn) {
   if (S.talk && S.talk.canvas === canvas) return closeTalk();
   const r = btn.getBoundingClientRect();
-  S.talk = { canvas, x: r.left, y: r.bottom + 6, data: null, agent: 'agy', model: '', folder: undefined, draft: '', said: '', busy: false };
+  S.talk = { canvas, btn: { left: r.left, top: r.top, right: r.right, bottom: r.bottom }, data: null, agent: 'agy', model: '', folder: undefined, draft: '', said: '', busy: false };
   renderTalk();
   loadTalk();
 }
@@ -1259,26 +1259,17 @@ function renderTalk() {
   el.hidden = !T;
   if (!T) { setHtml(el, ''); return; }
   /* Landscape on a wide screen: the chat beside a panel of what the agent is
-     doing; a narrow screen keeps the tall window. Either way it never runs off
-     the screen, and only its middle scrolls. */
+     doing; a narrow screen keeps the tall window. It opens below its button or
+     above it, never over it, never off the screen, and only its middle scrolls. */
   T.wide = innerWidth >= 760;
   el.classList.toggle('wide', T.wide);
-  if (T.wide) {
-    const w = Math.min(900, innerWidth - 24), h = Math.min(560, innerHeight - 24);
-    el.style.width = w + 'px';
-    el.style.left = Math.max(12, Math.min(T.x - 120, innerWidth - w - 12)) + 'px';
-    el.style.top = Math.max(12, Math.min(T.y, innerHeight - h - 12)) + 'px';
-    el.style.height = h + 'px';
-    el.style.maxHeight = '';
-  } else {
-    const w = Math.min(420, innerWidth - 24);
-    el.style.width = w + 'px';
-    el.style.left = Math.max(12, Math.min(T.x, innerWidth - w - 12)) + 'px';
-    const top = Math.max(12, Math.min(T.y, innerHeight - 480));
-    el.style.top = top + 'px';
-    el.style.height = '';
-    el.style.maxHeight = (innerHeight - top - 12) + 'px';
-  }
+  const at = placeTalk(T.btn, innerWidth, innerHeight, T.wide);
+  el.style.left = at.left + 'px';
+  el.style.width = at.width + 'px';
+  el.style.top = at.top !== undefined ? at.top + 'px' : '';
+  el.style.bottom = at.bottom !== undefined ? at.bottom + 'px' : '';
+  el.style.height = T.wide ? at.height + 'px' : '';
+  el.style.maxHeight = T.wide ? '' : at.height + 'px';
   if (typingIn('#talk')) return;
   /* Redrawn as the agent works: what is being read stays where it is, and the
      newest lines are followed only by someone already at the bottom. */

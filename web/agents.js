@@ -42,6 +42,24 @@ export function agentsBoxHtml(cell, canvas, sitting = [], desk = '', placed = fa
     `<span>Agents</span></button>`;
 }
 
+/* Where the window opens: below its Agents button when there is room, else above
+   it, else on the side with more room, shrunk to fit - and beside the button on a
+   screen too short for either - so it never covers the button, and a second click
+   on the button closes it. btn: the button's rectangle; vw, vh: the screen. */
+export function placeTalk(btn, vw, vh, wide) {
+  const GAP = 6, EDGE = 12, MIN = 240;
+  const w = Math.min(wide ? 900 : 420, vw - 2 * EDGE);
+  const want = Math.min(wide ? 560 : 480, vh - 2 * EDGE);
+  const left = Math.max(EDGE, Math.min(btn.left - (wide ? 120 : 0), vw - w - EDGE));
+  const below = vh - btn.bottom - GAP - EDGE, above = btn.top - GAP - EDGE;
+  if (below >= want || (below >= above && below >= MIN)) return { left, width: w, top: btn.bottom + GAP, height: Math.min(want, below) };
+  if (above >= MIN) return { left, width: w, bottom: vh - btn.top + GAP, height: Math.min(want, above) };
+  // too short above and below: beside the button, on whichever side it fits
+  const right = btn.right + GAP, leftSide = btn.left - GAP - w;
+  const x = right + w <= vw - EDGE ? right : Math.max(EDGE, leftSide);
+  return { left: x, width: w, top: EDGE, height: vh - 2 * EDGE };
+}
+
 const STATE = { idle: 'ready', starting: 'starting…', working: 'working…', waiting: 'waiting on your answer' };
 const SEND_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>`;
 

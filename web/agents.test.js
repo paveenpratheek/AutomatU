@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentsBoxHtml, agentsHtml, dayOf } from './agents.js';
+import { agentsBoxHtml, agentsHtml, dayOf, placeTalk } from './agents.js';
 
 const NOW = new Date('2026-11-14T12:00:00');
 const DESK = { slug: 'portfolio', name: 'Portfolio', role: 'Builds my site', main_canvas: 'PortFolio', attached: [], owner: 'portfolio' };
@@ -88,4 +88,23 @@ test('on a wide screen the window is landscape: the chat beside a panel of the w
   assert.match(panel, /data-agent-stop="1">Stop what it is doing/);
   const choose = agentsHtml({ canvas: 'PortFolio', wide: true, data: { canvas: 'PortFolio', desk: DESK, agent: null, messages: [], models: MODELS } }, NOW);
   assert.match(choose, /class="tk wide".*Place the agent.*class="tk-side".*Nothing has been said at this desk yet/s, 'the choice beside what was said before');
+});
+
+test('the window opens below its button, or above it when the hex is low, and never covers the button', () => {
+  const btn = (top) => ({ left: 756, right: 824, top, bottom: top + 22 });
+  const high = placeTalk(btn(157), 1440, 900, true);
+  assert.deepEqual([high.top, high.height, high.width], [185, 560, 900], 'below, at full size');
+  const low = placeTalk(btn(610), 1440, 900, true);
+  assert.deepEqual([low.top, low.bottom, low.height], [undefined, 296, 560], 'above, anchored to the button (the Resume hex)');
+  const box = (p, vh) => { const top = p.top !== undefined ? p.top : vh - p.bottom - p.height; return { l: p.left, r: p.left + p.width, t: top, b: top + p.height }; };
+  for (const [vw, vh, wide] of [[1440, 900, true], [1280, 720, true], [420, 860, false], [800, 600, true]]) {
+    for (let y = 0; y + 22 <= vh; y += 7) {
+      const b = btn(y), p = placeTalk(b, vw, vh, wide), r = box(p, vh);
+      const covers = r.l < b.right && r.r > b.left && r.t < b.bottom && r.b > b.top;
+      assert.ok(!covers, `button at ${y} on ${vw}x${vh} is left uncovered`);
+      assert.ok(r.t >= 12 - 1e-9 && r.b <= vh - 12 + 1e-9, `on the screen at ${y} on ${vw}x${vh}`);
+    }
+  }
+  const short = placeTalk({ left: 300, right: 368, top: 200, bottom: 222 }, 1440, 420, true);
+  assert.equal(short.left, 374, 'too short above and below: beside it');
 });
