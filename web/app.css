@@ -712,8 +712,11 @@ ul.kfruns li { border-radius: 12px; }
 .agbox { position: absolute; z-index: 3; display: flex; align-items: center; justify-content: center; width: 26px; height: 22px; padding: 0; border: 1px solid #E4E4E4; border-radius: 7px; background: #FFFFFF; color: var(--ink-2); cursor: pointer; box-shadow: 0 1px 3px rgba(31, 30, 29, 0.08); }
 .agbox:hover { border-color: var(--ink); color: var(--ink); }
 .agbox:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.talk { position: fixed; z-index: 30; max-height: calc(100vh - 24px); overflow: auto; }
-.tk { display: flex; flex-direction: column; gap: 12px; padding: 16px; background: #FFFFFF; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 12px 36px rgba(31, 30, 29, 0.14); }
+.talk { position: fixed; z-index: 30; display: flex; flex-direction: column; max-height: calc(100vh - 24px); }
+.tk { display: flex; flex-direction: column; gap: 12px; min-height: 0; max-height: 100%; padding: 16px; background: #FFFFFF; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 12px 36px rgba(31, 30, 29, 0.14); overflow: hidden; }
+.tk-h, .tk-foot { flex: none; }
+.tk-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 12px; margin: 0 -6px; padding: 0 6px; overscroll-behavior: contain; }
+.tk-body > * { flex: none; }
 .tk-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .tk-who { display: flex; flex-direction: column; min-width: 0; }
 .tk-who b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -733,10 +736,11 @@ ul.kfruns li { border-radius: 12px; }
 .tk-app.claude { background: #FBEFE9; color: var(--hot-ink); }
 .tk-app.antigravity { background: #E6EEF8; color: #3B5F86; }
 .tk-note { margin: 0; }
-.tk-q { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 14px; background: var(--paper-3); white-space: pre-wrap; }
-.tk-a { white-space: pre-wrap; font-size: 14px; line-height: 1.55; max-height: 320px; overflow: auto; }
-ul.tk-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--ink-3); }
-ul.tk-steps li { display: flex; align-items: center; gap: 6px; }
+.tk-q { align-self: flex-end; max-width: 85%; padding: 8px 12px; border-radius: 14px; background: var(--paper-3); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow-y: auto; }
+.tk-a { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.55; }
+ul.tk-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--ink-3); max-height: 132px; overflow-y: auto; }
+ul.tk-steps li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+ul.tk-steps li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ul.tk-steps li::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 3px; background: #C9C9C9; }
 ul.tk-steps li.completed::before { background: var(--live); }
 ul.tk-steps li.failed::before { background: #A33A3A; }

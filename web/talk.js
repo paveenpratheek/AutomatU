@@ -38,19 +38,23 @@ export function agentsBoxHtml(cell, canvas, sitting = [], desk = '') {
 
 const live = (r) => r && ['starting', 'working', 'asking'].includes(r.state);
 
+/* A running task, as [what scrolls, the footer that stays]: each tool step on
+   one line - a long command in full on hover - in a short list of its own. */
 function runHtml(r, convTitle) {
-  const steps = (r.steps || []).map((s) => `<li class="${esc(s.status)}">${esc(s.title)}</li>`).join('');
+  const n = (r.steps || []).length;
+  const steps = (r.steps || []).map((s) => `<li class="${esc(s.status)}" title="${esc(s.title)}"><span>${esc(s.title)}</span></li>`).join('');
   const ask = r.ask ? `<div class="tk-ask"><span>The agent asks to: <b>${esc(r.ask.title)}</b></span><div class="kdrow">` +
     r.ask.options.map((o) => `<button type="button" class="kbtn${/reject/.test(o.kind) ? ' quiet' : ''}" data-talk-answer="${esc(o.id)}">${esc(o.name)}</button>`).join('') +
     (r.ask.options.some((o) => /reject/.test(o.kind)) ? '' : `<button type="button" class="kbtn quiet" data-talk-answer="">No</button>`) + `</div></div>` : '';
   const said = { starting: 'Opening a copy of the conversation…', working: 'Working…', asking: 'Waiting on your answer',
     done: 'Done', stopped: 'Stopped', failed: 'Could not finish' }[r.state] || r.state;
-  return `<div class="tk-q">${esc(r.text)}</div>` +
-    (steps ? `<ul class="tk-steps">${steps}</ul>` : '') +
+  const body = `<div class="tk-q">${esc(r.text)}</div>` +
+    (steps ? `<div class="tk-l">${n} step${n === 1 ? '' : 's'}</div><ul class="tk-steps">${steps}</ul>` : '') +
     (r.reply ? `<div class="tk-a">${esc(r.reply)}</div>` : '') + ask +
-    (r.error ? `<p class="said">${esc(r.error)}</p>` : '') +
-    `<div class="tk-foot"><span class="mt">${esc(said)}${convTitle ? ` · in a copy of “${esc(convTitle)}”` : ''}</span>` +
+    (r.error ? `<p class="said">${esc(r.error)}</p>` : '');
+  const foot = `<div class="tk-foot"><span class="mt">${esc(said)}${convTitle ? ` · in a copy of “${esc(convTitle)}”` : ''}</span>` +
     (live(r) ? `<button type="button" class="kbtn quiet" data-talk-stop="1">Stop</button>` : `<button type="button" class="kbtn" data-talk-new="1">New task</button>`) + `</div>`;
+  return [body, foot];
 }
 
 /* T: { canvas, data: {agents, conversations, note, run} | null, pick, draft, run, dismissed, said } */
@@ -61,10 +65,10 @@ export function talkHtml(T, now = new Date()) {
   const here = ((D && D.sitting) || []).filter((s) => !s.away);
   const where = D && D.desk ? (here.length ? `sitting at the ${D.desk} desk${here[0].since ? ' since ' + timeOf(here[0].since) : ''}`
     : `nobody is sitting at the ${D.desk} desk`) : T.canvas;
-  let body;
+  let body, foot = '';
   const run = T.run && T.run.id !== T.dismissed ? T.run : null;
   if (!D) body = `<p class="mt">Reading the agent's conversations…</p>`;
-  else if (run) body = runHtml(run, (convs.find((c) => c.id === run.conversation) || {}).title);
+  else if (run) [body, foot] = runHtml(run, (convs.find((c) => c.id === run.conversation) || {}).title);
   else if (D.note && !convs.length) body = `<p class="mt">${esc(D.note)}</p>`;
   else {
     const pick = T.pick || (convs[0] ? convs[0].platform + ':' + convs[0].id : '');
@@ -82,5 +86,5 @@ export function talkHtml(T, now = new Date()) {
       `<p class="mt tk-note">The agent continues a copy, so the conversation in the app is not changed.</p>`;
   }
   return `<div class="tk" role="dialog" aria-label="${esc(who)}"><div class="tk-h"><span class="tk-who"><b>${here.length ? '<i class="agdot" aria-hidden="true"></i>' : ''}${esc(who)}</b><span class="mt">${esc(where)}</span></span>` +
-    `<button type="button" class="tk-x" data-talk-close="1" aria-label="Close">×</button></div>${body}</div>`;
+    `<button type="button" class="tk-x" data-talk-close="1" aria-label="Close">×</button></div><div class="tk-body">${body}</div>${foot}</div>`;
 }
