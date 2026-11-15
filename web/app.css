@@ -823,3 +823,8 @@ ul.tk-steps li.working::before { background: var(--hot); }
 .talk.wide .tk { padding: 20px 24px; }
 .tk-cols { grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
 .tk.wide .tk-a { font-size: 14.5px; }
+/* In the bell's sheet a desk's event is two lines - what happened, then when and what follows -
+   so neither is squeezed into a narrow column beside the other. */
+.drop .dk-ev { flex-wrap: wrap; row-gap: 2px; min-height: 0; padding: 8px 2px; box-sizing: border-box; }
+.drop .dk-ev .nm { flex: 1 1 calc(100% - 20px); }
+.drop .dk-ev .mt { flex: 1 1 100%; white-space: normal; font-size: 12px; }
