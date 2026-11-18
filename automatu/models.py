@@ -579,6 +579,38 @@ class CanvasChange(BaseModel):
     problem: str | None = None
 
 
+class NearRepo(BaseModel):
+    """A git repository a canvas's hex can link (box 31): its folder, whether it
+    has a GitX record, and the canvas and plan totem it is bound to now, if any."""
+    repo: str
+    name: str
+    gitx: bool
+    canvas: str | None = None
+    totem: str | None = None
+
+
+class NearRepos(BaseModel):
+    repos: list[NearRepo]
+
+
+class BindAsk(BaseModel):
+    """Link a repository to the canvas that plans it, from AutomatU's own page:
+    the same bind as automatu bind, replace saying the user confirmed a move."""
+    repo: str
+    canvas: str
+    totem: str | None = None
+    replace: bool = False
+
+
+class BindChange(BaseModel):
+    repo: str
+    canvas: str
+    totem: str | None = None
+    changed: bool
+    was: str | None = None      # where it was bound before, when it moved
+    problem: str | None = None
+
+
 class FindAnswer(BaseModel):
     query: str
     boxes: list[FoundBox]
