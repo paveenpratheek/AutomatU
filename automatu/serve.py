@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
 from .maps import latest_map, mapped_repos
-from .models import (AgentsAnswer, ArrangementSave, CanvasAsk, CanvasChange, KdDeskAnswer, KdDeskChange, KdOverview, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
+from .models import (AgentsAnswer, ArrangementSave, BindAsk, BindChange, CanvasAsk, CanvasChange, NearRepos, KdDeskAnswer, KdDeskChange, KdOverview, DeskRunDetail, DesksAnswer, GrantsSave, InterruptAnswer,
                      InterruptAsk, NoticesAnswer, SaveAnswer, Timeline, DeskAgentAnswer, DeskAgentChoose, DeskAgentItem,
                      DeskAgentSend, DeskAgentView)
 
@@ -79,6 +79,30 @@ def canvases_remove(ask: CanvasAsk, request: Request) -> dict:
         return remove(ask.canvas)
     except ValueError as e:
         return {"canvas": ask.canvas, "changed": False, "problem": str(e)}
+
+
+@app.get("/api/bind/repos", response_model=NearRepos)
+def bind_repos() -> dict:
+    """The git repositories beside the ones AutomatU knows, for a canvas's hex to
+    link (box 31)."""
+    from .binding import repositories_near
+    return {"repos": repositories_near()}
+
+
+@app.post("/api/bind", response_model=BindChange)
+def bind_repo(ask: BindAsk, request: Request) -> dict:
+    """The user links a repository to the canvas that plans it, from a canvas's
+    hex - from this page only. The same bind as the command line, so its checks
+    and its log are the same (t-83634eede9, t-f9d9da8298)."""
+    _own_page(request, "link a repository")
+    from . import binding
+    from .sources import canvas as canvas_source
+    try:
+        r = binding.bind(ask.repo, ask.canvas, totem=ask.totem, replace=ask.replace,
+                         check=lambda name: canvas_source.read_canvas_script(name))
+    except (ValueError, RuntimeError) as e:
+        return {"repo": ask.repo, "canvas": ask.canvas, "totem": ask.totem, "changed": False, "problem": str(e)}
+    return {"repo": r["repo"], "canvas": r["canvas"], "totem": r["totem"], "changed": r["changed"], "was": r.get("was")}
 
 
 def _added(canvas: str) -> None:

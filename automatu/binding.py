@@ -24,7 +24,12 @@ def repo_key(dir: str) -> str:
         top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=dir or ".", capture_output=True, text=True, check=True).stdout.strip()
     except (subprocess.CalledProcessError, OSError):
         raise ValueError(str(dir) + " is not a git repository")
-    top = top.replace("\\", "/").rstrip("/")
+    return _norm(top)
+
+
+def _norm(path: str) -> str:
+    """A folder written one way: forward slashes, no trailing slash, the drive letter in capitals."""
+    top = str(path).replace("\\", "/").rstrip("/")
     return re.sub(r"^([a-z]):", lambda m: m.group(1).upper() + ":", top)
 
 
@@ -128,6 +133,35 @@ def binding_history(repo: str) -> list[dict]:
             conn.execute("INSERT INTO binding_log (repo, canvas, totem, totem_id, at, rebuilt, note) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                          (repo, r["canvas"], r["totem"], r["totem_id"], r["at"], r["rebuilt"], r["note"]))
     return out
+
+
+def repositories_near() -> list[dict]:
+    """The git repositories a canvas's hex offers to link (box 31): every folder
+    beside a repository AutomatU already knows that holds a .git, each saying
+    whether it has a GitX record and where it is bound now. Read when asked,
+    never kept; a folder that cannot be read is passed over."""
+    from pathlib import Path
+    now = {b["repo"]: b for b in all_bindings()}
+    found: dict[str, dict] = {}
+    for parent in sorted({str(Path(r).parent) for r in now}):
+        try:
+            kids = sorted(Path(parent).iterdir())
+        except OSError:
+            continue
+        for d in kids:
+            try:
+                if not (d.is_dir() and (d / ".git").exists()):
+                    continue
+                gitx = (d / ".gitx").is_dir()
+            except OSError:
+                continue
+            key = _norm(str(d))
+            b = now.get(key)
+            found[key] = {"repo": key, "name": d.name, "gitx": gitx,
+                          "canvas": b["canvas"] if b else None, "totem": b["totem"] if b else None}
+    for key, b in now.items():   # a bound repository whose folder is gone still says where it is bound
+        found.setdefault(key, {"repo": key, "name": key.split("/")[-1], "gitx": False, "canvas": b["canvas"], "totem": b["totem"]})
+    return sorted(found.values(), key=lambda r: r["name"].lower())
 
 
 def repos_of(canvas: str) -> list[str]:

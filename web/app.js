@@ -19,6 +19,7 @@ import { scaleOf, phaseAt, ist, lastMapIn, snapTargets, timeAt, nearestTarget, m
 import { liveCommits, regionsOf, regionLabel, sinceLine, closedLine } from './notices.js';
 import { desksHtml, deskEvents, eventsHtml, runViewHtml } from './desks.js';
 import { canvasListHtml } from './canvaslist.js';
+import { bindAsk, bindFormHtml, needsMove, plannedHtml, saidOf } from './bindrepo.js';
 import { AGENT_NAMES, agentsBoxHtml, agentsHtml as deskAgentHtml } from './agents.js';
 import { SECTIONS, HEADS, TONES, DEEP, addFlowStep, askHtml, askText, formBody, kdBarHtml, kdDesksHtml, kdTrackingHtml, kfHtml, mergeOverview, monitoringHtml, moveFlowStep,
   removeFlowStep, setFlowField, starterFlow, trackMark, trackedOn } from './kd.js';
@@ -278,6 +279,7 @@ function contentHtml(c) {
 }
 
 function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
+  if (typingIn('#panel [data-bindform]')) return;   // a redraw never takes the link form from under the user
   const P = $('panel'), m = S.m;
   const R = view !== 'root' && node.kind !== 'canvas' ? S.rel[reg[node.canvas].name] : null;
   if (S.sel && reg[S.sel]) {
@@ -289,7 +291,7 @@ function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
     return;
   }
   const countKind = (k, u) => (u ? boxesUnder(reg, u) : Object.keys(reg)).filter((x) => reg[x].kind === k).length;
-  let stats, kind, title = node.name, owner = '';
+  let stats, kind, title = node.name, owner = '', link = '';
   if (view === 'root') {
     kind = 'Map'; title = 'Your canvases';
     stats = [[reg.root.children.length, 'canvases'], [countKind('totem'), 'totems'], [m.items.length, 'notes, texts, files']];
@@ -297,7 +299,7 @@ function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
     kind = node.agent ? 'Agent canvas' : 'Canvas';
     stats = [[node.children.length, 'totems'], [countKind('sub', view), 'sub-totems'], [countKind('box', view), 'boxes']];
     owner = node.agent ? 'An agent canvas: drawn from one script per totem.' : 'Your own canvas in File Fabric; agents wrote some of its totems.';
-    if (node.repos.length) owner += ' Plans ' + node.repos.map((r) => r.name + (r.totem ? ' (totem ' + r.totem + ')' : '')).join(', ') + '.';
+    link = linkHtml(reg, node);
   } else {
     kind = node.kind === 'totem' ? 'Totem' : node.kind === 'sub' ? 'Sub-totem' : 'Box';
     const under_ = boxesUnder(reg, view);
@@ -323,7 +325,65 @@ function renderMainPanel(reg, view, node, rowIds, Q, heat, heatArr, arranged) {
     (owner ? `<p class="owner">${esc(owner)}</p>` : '') +
     (view === 'root' ? '<p>Each canvas you added is a hexagon - add or remove one with Canvases, at the top. Inside, each totem sits with its sub-totems around it: related ones touch, unrelated ones keep one hexagon of space, and different topics sit one hexagon apart.</p>' : (node.text ? `<p>${esc(node.text)}</p>` : '')) +
     `<div class="stats">${stats.map(([n, l]) => `<div><b>${n}</b><span>${esc(l)}</span></div>`).join('')}</div>` +
-    traffic + own + arrangedHtml(reg, arranged, R) + (rows ? `<h3>Inside</h3><div class="rows">${rows}</div>` : '');
+    link + traffic + own + arrangedHtml(reg, arranged, R) + (rows ? `<h3>Inside</h3><div class="rows">${rows}</div>` : '');
+}
+
+/* Box 31: the repositories a canvas plans, and linking another from its hex.
+   The repositories to offer are read once, and again after a link. */
+function linkHtml(reg, node) {
+  if (!S.bind || S.bind.canvas !== node.name) S.bind = { canvas: node.name };
+  if (!S.nearAsked) loadNear();
+  const totems = node.children.filter((id) => reg[id].kind === 'totem').map((id) => reg[id].name);
+  return `<h3>Repositories it plans</h3>` + plannedHtml(node.repos) + `<h3>Link a repository</h3>` + bindFormHtml(node.name, totems, S.near, S.bind);
+}
+
+function loadNear() {
+  S.nearAsked = true; S.near = null;
+  getJson('/api/bind/repos').then((j) => { S.near = j.repos; }).catch(() => { S.near = []; })
+    .then(() => { if (S.tab === 'main') render(); });
+}
+
+/* What is picked or typed in the link form is kept as it is entered, so a
+   redraw puts it back. */
+for (const ev of ['input', 'change']) {
+  document.addEventListener(ev, (e) => {
+    const f = e.target.closest && e.target.closest('[data-bindform]');
+    if (!f || !S.bind) return;
+    const fd = new FormData(f);
+    Object.assign(S.bind, { repo: fd.get('repo') || '', path: fd.get('path') || '', totem: fd.get('totem') || '', said: '' });
+  });
+}
+
+document.addEventListener('submit', (e) => {
+  const f = e.target.closest('[data-bindform]');
+  if (!f) return;
+  e.preventDefault();
+  const B = S.bind, got = bindAsk(B.canvas, B, S.near);
+  if (got.problem) { B.said = got.problem; return render(); }
+  if (got.confirm && !window.confirm(got.confirm)) return;
+  sendLink({ ...got.ask, replace: !!got.confirm });
+});
+
+/* The link sent; a repository the list did not know to be bound elsewhere is
+   refused by the server, and asked about then. */
+function sendLink(ask) {
+  const B = S.bind;
+  B.busy = true; B.said = '';
+  document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  render();
+  return post('/api/bind', ask)
+    .then((j) => {
+      if (!('changed' in j)) { B.said = 'Not linked: ' + (j.detail || 'AutomatU refused it.'); return null; }
+      if (!ask.replace && needsMove(j.problem) && window.confirm(j.problem.replace(/; pass replace to change it$/, '') + `. Move it to ${ask.canvas} > ${ask.totem}?`))
+        return sendLink({ ...ask, replace: true });
+      B.said = saidOf(j);
+      if (!j.changed) return null;
+      Object.assign(B, { repo: '', path: '', totem: '' });
+      S.nearAsked = false;
+      return rereadCanvases();
+    })
+    .catch(() => { B.said = 'AutomatU could not be reached.'; })
+    .then(() => { B.busy = false; render(); });
 }
 
 function groupText(Q) {
@@ -1953,16 +2013,7 @@ async function follow() {
   S.repos = repos;
   const changed = repos.filter((r) => before.get(r.repo) !== r.id);
   if (!changed.length) return;
-  const cv = await getJson('/api/canvases');
-  const m = model(cv.canvases);
-  /* Keep the Main map where it was, when what it points at is still there. */
-  const keep = S.path.map((id) => S.m && S.m.reg[id] && pathTo(S.m.reg, id).map((x) => S.m.reg[x].name).join('>'));
-  S.m = m; S.layouts = {}; S.memo = {};
-  const byPath = {};
-  for (const id of Object.keys(m.reg)) byPath[pathTo(m.reg, id).map((x) => m.reg[x].name).join('>')] = id;
-  S.path = keep.map((k) => byPath[k]).filter(Boolean);
-  if (!S.path.length) S.path = ['root'];
-  if (S.sel && S.m.reg[S.sel] === undefined) S.sel = null;
+  await rereadCanvases();
   for (const r of changed) {
     const old = S.code[r.repo];
     if (!old && r.repo !== S.repo) continue;
@@ -1976,6 +2027,20 @@ async function follow() {
     if (r.repo === S.repo) loadTimeline(true);
   }
   render();
+}
+
+/* The canvases read again, the Main map kept where it was when what it points
+   at is still there - after a new map, and after a repository is linked. */
+async function rereadCanvases() {
+  const cv = await getJson('/api/canvases');
+  const m = model(cv.canvases);
+  const keep = S.path.map((id) => S.m && S.m.reg[id] && pathTo(S.m.reg, id).map((x) => S.m.reg[x].name).join('>'));
+  S.m = m; S.layouts = {}; S.memo = {};
+  const byPath = {};
+  for (const id of Object.keys(m.reg)) byPath[pathTo(m.reg, id).map((x) => m.reg[x].name).join('>')] = id;
+  S.path = keep.map((k) => byPath[k]).filter(Boolean);
+  if (!S.path.length) S.path = ['root'];
+  if (S.sel && S.m.reg[S.sel] === undefined) S.sel = null;
 }
 
 start();
