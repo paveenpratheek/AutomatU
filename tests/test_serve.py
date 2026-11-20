@@ -50,6 +50,7 @@ def test_a_repository_is_linked_from_a_canvas_hex_as_automatu_bind_links_it(stor
     """Box 31: the page offers the git repositories beside the ones AutomatU
     knows and links one with its plan totem - from this page only, with bind's
     own checks, and a move only when the user confirmed it."""
+    import os
     import subprocess
     from fastapi.testclient import TestClient
     import automatu.sources.canvas as canvas_source
@@ -72,7 +73,9 @@ def test_a_repository_is_linked_from_a_canvas_hex_as_automatu_bind_links_it(stor
     assert near["Project A"]["canvas"] == "H" and near["Project A"]["totem"] == "NoteX"
     assert near["Project B"]["canvas"] is None and near["Project B"]["gitx"] is True and near["Project A"]["gitx"] is False
 
-    ask = {"repo": b.replace("/", "\\") + "\\", "canvas": "H", "totem": "RAGX"}
+    # Typed as the user's own system writes a folder, with its separator at the
+    # end: backslashes on Windows; on Linux a backslash is no separator.
+    ask = {"repo": b.replace("/", os.sep) + os.sep, "canvas": "H", "totem": "RAGX"}
     assert c.post("/api/bind", json=ask, headers={"origin": "http://evil.example"}).status_code == 403
     assert binding_of(b) is None
     assert "no totem named Nope" in c.post("/api/bind", json={**ask, "totem": "Nope"}, headers=page).json()["problem"]
