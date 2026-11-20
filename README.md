@@ -43,7 +43,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\automatu serve               map view on http://127.0.0.1:7790
 
 .venv\Scripts\python -m pytest             Python tests
-node --test web/                           map view tests
+node --test "web/*.test.js"                map view tests
 ```
 
 Paths to GitX and NoteX default to this machine's and are set with `GITX_DIR`,
