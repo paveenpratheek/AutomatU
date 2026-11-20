@@ -213,14 +213,23 @@ function renderMain() {
   renderMainPanel(reg, view, node, ids.length ? ids : node.children, Q, heat, heatArr, arranged);
 }
 
-/* A canvas's relations, asked for once; the page redraws when they arrive. */
+/* A canvas's relations, asked for once and again whenever the canvases are
+   read again (a new map, a renamed box); the page redraws when they arrive.
+   While a fresh answer is on its way the old one keeps the boxes arranged,
+   and an answer overtaken by a newer ask is dropped. */
 function relFor(name) {
-  if (!S.rel[name]) {
-    S.rel[name] = { state: 'loading' };
+  const had = S.rel[name];
+  if (!had || had.stale) {
+    const ask = {};
+    S.rel[name] = had && had.state === 'ok' ? { state: 'ok', idx: had.idx, ask } : { state: 'loading', ask };
     getJson('/api/relations?canvas=' + encodeURIComponent(name))
-      .then((j) => { S.rel[name] = { state: 'ok', idx: indexRelations(j) }; })
-      .catch((e) => { S.rel[name] = { state: 'failed', msg: e.message }; })
-      .then(() => { S.layouts = {}; if (S.tab === 'main') render(); });
+      .then((j) => ({ state: 'ok', idx: indexRelations(j) }), (e) => ({ state: 'failed', msg: e.message }))
+      .then((r) => {
+        const now = S.rel[name];
+        if (now && now.ask !== ask) return;
+        S.rel[name] = now && now.stale ? { ...r, stale: true } : r;
+        S.layouts = {}; if (S.tab === 'main') render();
+      });
   }
   return S.rel[name];
 }
@@ -2036,6 +2045,8 @@ async function rereadCanvases() {
   const m = model(cv.canvases);
   const keep = S.path.map((id) => S.m && S.m.reg[id] && pathTo(S.m.reg, id).map((x) => S.m.reg[x].name).join('>'));
   S.m = m; S.layouts = {}; S.memo = {};
+  /* The relations were worked out from the canvas and map before: ask again. */
+  for (const r of Object.values(S.rel)) r.stale = true;
   const byPath = {};
   for (const id of Object.keys(m.reg)) byPath[pathTo(m.reg, id).map((x) => m.reg[x].name).join('>')] = id;
   S.path = keep.map((k) => byPath[k]).filter(Boolean);
