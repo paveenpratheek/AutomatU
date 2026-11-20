@@ -232,9 +232,10 @@ Canvas tabs, traffic search, pictures); the live map; related neighbours
 
 ## 4. Maintaining it
 
-- **Tests:** `.venv\Scripts\python -m pytest` and `node --test web/`. Tests use
-  made-up canvases, vectors and repositories in temp folders - never the
-  user's real data.
+- **Tests:** `.venv\Scripts\python -m pytest` and `node --test "web/*.test.js"`
+  (quoted: Node expands the pattern itself, in any shell; `node --test web/`
+  fails on Node 24). Tests use made-up canvases, vectors and repositories in
+  temp folders - never the user's real data.
 - **Self-test answer key:** `E:\Coding CLI\AutomatU answer key\key.jsonl` -
   one line per commit, `{"commit": "<12 chars>", "section": "<plan box
   address>", "note": "..."}`. A commit about the whole project (like the
