@@ -8,6 +8,17 @@ piece of code under the plan box it does - or leaves it waiting when the plan
 has not caught up. It shows the result as hexagon maps: what was planned, what
 was built where, and what was built that the plan does not explain yet.
 
+## Architecture
+
+[![AutomatU, Knowledge Desk and Work Desks: what each part is and how they talk](docs/architecture.svg)](docs/architecture.svg)
+
+AutomatU is box 2. It reads GitX and NoteX live, never copying the code or
+the canvas, and keeps its own state (maps, placements, embeddings, desk chats)
+in its own Postgres database. Knowledge Desk (box 3) and Work Desks (box 4)
+live in a separate repository, Project WorkDesk: they reach AutomatU only
+through its MCP server, its API and its A2A agents, never its database. Click
+the diagram to open it full size.
+
 ## Where everything is explained
 
 This README is only the front page. The plan, how every part works (algorithms,
